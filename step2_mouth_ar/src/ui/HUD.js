@@ -32,6 +32,12 @@ export class HUD {
       selConf: root.getElementById('selConfValue'),
       selTracking: root.getElementById('selTrackingValue'),
       selArch: root.getElementById('selArchValue'),
+      // --- Step 3b: per-tooth 3D anchors ---
+      anchorCount: root.getElementById('anchorCountValue'),
+      anchorDist: root.getElementById('anchorDistValue'),
+      depthSource: root.getElementById('depthSourceValue'),
+      selPos: root.getElementById('selPosValue'),
+      selRot: root.getElementById('selRotValue'),
     };
     this._fpsSamples = [];
   }
@@ -46,6 +52,19 @@ export class HUD {
     if (this.el.selConf) this.el.selConf.textContent = conf.toFixed(2);
     if (this.el.selTracking) this.el.selTracking.textContent = track.status;
     if (this.el.selArch) this.el.selArch.textContent = track.arch;
+    const a = track.anchor3D ?? null;
+    if (this.el.selPos) {
+      const t = a?.getTransform();
+      this.el.selPos.textContent = t
+        ? `${(t.position.x * 100).toFixed(1)}, ${(t.position.y * 100).toFixed(1)}, ${(t.position.z * 100).toFixed(1)} cm`
+        : '—';
+    }
+    if (this.el.selRot) {
+      const t = a?.getTransform();
+      this.el.selRot.textContent = t
+        ? `${t.rotationInFace.rx.toFixed(0)}, ${t.rotationInFace.ry.toFixed(0)}, ${t.rotationInFace.rz.toFixed(0)} deg`
+        : '—';
+    }
   }
 
   setBanner(message, kind = 'info') {
@@ -65,7 +84,7 @@ export class HUD {
 
   update({ faceDetected, mouthTracked, anchorValid, fps, delegate, resolution,
             pose, opening, coasting,
-            teeth, toothTiming, toothReason, selectedTooth,
+            teeth, toothTiming, toothReason, selectedTooth, anchors3D,
             detectorName, detectorIsLearned }) {
     this.setPill(this.el.faceStatus,
       faceDetected ? 'Face detected' : 'Face not detected',
@@ -122,6 +141,28 @@ export class HUD {
       this.el.detector.textContent = detectorIsLearned
         ? detectorName : `${detectorName} — not a neural network`;
     }
+    this.setAnchors3D(anchors3D ?? null);
     this.setSelectedTooth(selectedTooth ?? null);
+  }
+
+  /**
+   * 3D anchor read-out. Distance and depth source are shown together on
+   * purpose: the number is only as good as where it came from, and the user
+   * should be able to see which of the two estimators is running.
+   */
+  setAnchors3D(info) {
+    const n = info?.count ?? 0;
+    if (this.el.anchorCount) this.el.anchorCount.textContent = String(n);
+    if (this.el.anchorDist) {
+      this.el.anchorDist.textContent = info?.mouthDepthM
+        ? `~${(info.mouthDepthM * 100).toFixed(1)} cm (estimated)` : '—';
+    }
+    if (this.el.depthSource) {
+      this.el.depthSource.textContent = info?.depthSource
+        ? (info.depthSource === 'mediapipe-metric-head-model'
+          ? 'MediaPipe metric head model'
+          : 'apparent mouth width (assumed 50 mm)')
+        : '—';
+    }
   }
 }

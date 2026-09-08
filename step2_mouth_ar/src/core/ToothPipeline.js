@@ -21,6 +21,8 @@ import { MouthROI } from './MouthROI.js';
 import { ToothTracker } from './ToothTracker.js';
 import { TrackingSmoother } from './TrackingSmoother.js';
 import { createDetector } from './ToothDetector.js';
+import { ToothPoseEstimator, intrinsicsForFrame } from './ToothPoseEstimator.js';
+import { Tooth3DAnchorSet } from './Tooth3DAnchor.js';
 import './ToothSegmenter.js';   // registers the default detector
 
 export class ToothPipeline {
@@ -30,6 +32,10 @@ export class ToothPipeline {
     this.detector = createDetector(detector);
     this.tracker = new ToothTracker();
     this.smoother = new TrackingSmoother(smoothing);
+    // Step 3b — one independent 3D spatial anchor per tracked tooth.
+    this.poseEstimator = new ToothPoseEstimator();
+    this.anchors3D = new Tooth3DAnchorSet();
+    this.intrinsics = null;
 
     this.enabled = true;
     this.detectEveryN = detectEveryN;
@@ -85,6 +91,29 @@ export class ToothPipeline {
       console.log(`  arch px       : ${dbg.archPx}  (kept after upper/lower arch extraction)`);
     }
     console.table(rows);
+
+    const anchors = this.anchors3D.list();
+    console.log(`%c[Step3] 3D ANCHORS: ${anchors.length} (one transform per tooth)`,
+      'font-weight:bold;color:#6fd2ff');
+    console.log('  provenance — position_xy/scale_xy: MEASURED (viewing ray + '
+      + 'contour size); orientation: TRACKED (MediaPipe head matrix); '
+      + 'position_z/scale_z: ESTIMATED (dental-arch prior); '
+      + 'metric scale: ASSUMED (average 50 mm mouth). Not medical-grade.');
+    if (anchors.length) {
+      console.log(`  mouth distance: ${(anchors[0].pose.mouthDepthM * 100).toFixed(1)} cm `
+        + `via ${anchors[0].pose.depthSource}`);
+    }
+    console.table(anchors.map((a) => {
+      const t = a.getTransform();
+      return {
+        id: a.id, arch: a.arch,
+        x_cm: +(t.position.x * 100).toFixed(2),
+        y_cm: +(t.position.y * 100).toFixed(2),
+        z_cm: +(t.position.z * 100).toFixed(2),
+        rx: +t.rotation.rx.toFixed(1), ry: +t.rotation.ry.toFixed(1), rz: +t.rotation.rz.toFixed(1),
+        w_mm: +(t.scale.x * 1000).toFixed(1), h_mm: +(t.scale.y * 1000).toFixed(1),
+      };
+    }));
     /* eslint-enable no-console */
     return rows;
   }
@@ -102,6 +131,7 @@ export class ToothPipeline {
   reset() {
     this.tracker.reset();
     this.smoother.reset();
+    this.anchors3D.clear();
     this.lastDetections = [];
     this.selectedId = null;
     this._frame = 0;
@@ -114,7 +144,7 @@ export class ToothPipeline {
    * @param {MouthARAnchor} anchor
    * @param {number} tSec
    */
-  update(video, landmarks, mouth, anchor, tSec, frameW, frameH) {
+  update(video, landmarks, mouth, anchor, tSec, frameW, frameH, headMatrix = null) {
     const t0 = performance.now();
     this.reason = null;
 
@@ -173,9 +203,21 @@ export class ToothPipeline {
     const tracks = this.tracker.update(shouldDetect ? this.lastDetections : []);
     this.smoother.apply(tracks, tSec);
 
+    // ---- 3D anchors -------------------------------------------------
+    // Built every frame from the smoothed 2D tracks plus the head pose, so an
+    // anchor follows its own tooth rather than the mouth bounding box.
+    this.intrinsics = intrinsicsForFrame(frameW, frameH);
+    const visible = this.tracker.visibleTracks();
+    const poses = [];
+    for (const t of visible) {
+      const p = this.poseEstimator.estimate(t, anchor.getPose(), headMatrix, this.intrinsics);
+      if (p) poses.push(p);
+    }
+    this.anchors3D.update(poses);
+
     if (this._logNextFrame) {
       this._logNextFrame = false;
-      this.lastFrameDump = this._dumpFrame(this.tracker.visibleTracks());
+      this.lastFrameDump = this._dumpFrame(visible);
     }
     return this._finish(t0, detectMs);
   }
@@ -207,6 +249,21 @@ export class ToothPipeline {
   }
 
   getSelected() {
-    return this.tracker.tracks.find((t) => t.id === this.selectedId) ?? null;
+    const t = this.tracker.tracks.find((x) => x.id === this.selectedId) ?? null;
+    if (!t) return null;
+    // Hand the HUD the tooth's own 3D anchor alongside the 2D track, so the
+    // panel can show a real transform rather than screen coordinates.
+    return { ...t, anchor3D: this.anchors3D.get(t.id) };
+  }
+
+  /** Summary of the 3D stage for the HUD. */
+  anchor3DInfo() {
+    const list = this.anchors3D.list();
+    const first = list[0]?.pose ?? null;
+    return {
+      count: list.length,
+      mouthDepthM: first?.mouthDepthM ?? null,
+      depthSource: first?.depthSource ?? null,
+    };
   }
 }

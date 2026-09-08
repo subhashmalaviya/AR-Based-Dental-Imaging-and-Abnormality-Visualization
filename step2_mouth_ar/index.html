@@ -56,6 +56,8 @@
           <div><dt>Confidence</dt><dd id="selConfValue">—</dd></div>
           <div><dt>Tracking</dt><dd id="selTrackingValue">—</dd></div>
           <div><dt>Arch</dt><dd id="selArchValue">—</dd></div>
+          <div><dt>3D position <em>(x,y,z)</em></dt><dd id="selPosValue">—</dd></div>
+          <div><dt>3D rotation <em>(in face)</em></dt><dd id="selRotValue">—</dd></div>
         </dl>
         <p class="hint">
           Internal tracking ID only — <strong>not</strong> an FDI/anatomical
@@ -83,6 +85,37 @@
           <button id="resetTeethBtn" class="btn">Reset tracking</button>
         </div>
         <p class="hint" id="detectorValue">—</p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">3D tooth anchors <span class="tag">3D</span></h2>
+        <label class="row"><input type="checkbox" id="ar3dToggle" /><span>Show 3D proxy per tooth</span></label>
+        <dl class="readout">
+          <div><dt>Active anchors</dt><dd id="anchorCountValue">0</dd></div>
+          <div><dt>Mouth distance</dt><dd id="anchorDistValue">—</dd></div>
+          <div><dt>Depth from</dt><dd id="depthSourceValue">—</dd></div>
+        </dl>
+        <label class="row row--stack">
+          <span>Proxy shape</span>
+          <select id="ar3dModeSelect">
+            <option value="box" selected>3D box (shows orientation)</option>
+            <option value="axes">Coordinate axes</option>
+            <option value="sphere">Sphere</option>
+          </select>
+        </label>
+        <p class="hint">
+          Each tooth has its own 4&times;4 transform (position, rotation, scale)
+          and is projected through a pinhole camera — not a scaled 2D sprite.
+          <strong>Tracked:</strong> head orientation, from MediaPipe's facial
+          transformation matrix.
+          <strong>Measured:</strong> each tooth's viewing ray and apparent size,
+          from its segmented contour — the anchor sits exactly on that ray.
+          <strong>Estimated:</strong> distance along the ray, from a parabolic
+          dental-arch prior.
+          <strong>Assumed:</strong> metric scale, from an average 50&nbsp;mm
+          mouth. Depth is <em>not</em> measured and this is
+          <strong>not medical-grade registration</strong>.
+        </p>
       </section>
 
       <section class="panel__block">

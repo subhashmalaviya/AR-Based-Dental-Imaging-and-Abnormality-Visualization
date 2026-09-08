@@ -25,6 +25,7 @@ import { HUD } from './ui/HUD.js';
 import { ToothPipeline } from './core/ToothPipeline.js';
 import { ToothOverlayRenderer } from './ui/ToothOverlayRenderer.js';
 import { DebugRenderer } from './ui/DebugRenderer.js';
+import { AR3DRenderer } from './ui/AR3DRenderer.js';
 
 const video = document.getElementById('camera');
 const canvas = document.getElementById('overlay');
@@ -45,6 +46,7 @@ const landmarks = new LandmarkRenderer(ctx);
 const teeth = new ToothPipeline({ detector: 'classical', smoothing: 'balanced' });
 const toothRenderer = new ToothOverlayRenderer(ctx);
 const debugRenderer = new DebugRenderer(ctx);
+const ar3d = new AR3DRenderer(ctx);
 
 const state = {
   running: false,
@@ -87,6 +89,7 @@ function resizeCanvas() {
   // Text/panels must be un-mirrored or every label reads backwards.
   toothRenderer.setMirrored(mirror);
   debugRenderer.setMirrored(mirror);
+  ar3d.setMirrored(mirror);
 }
 
 function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
@@ -114,6 +117,9 @@ function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
   debugRenderer.drawSegmenterView(
     teeth.lastRoiImage, teeth.debugData, toothTracks, teeth.roi, w, h);
   debugRenderer.drawStats(teeth.debugData, toothStats, teeth.timing, teeth.detectFps, w);
+  // 3D proxies: one per tooth anchor, projected through each tooth's own
+  // transform (not scaled 2D sprites).
+  ar3d.render(teeth.anchors3D.list(), teeth.intrinsics, w, h);
 }
 
 // ----------------------------------------------------------------- main loop
@@ -128,10 +134,12 @@ function processFrame(nowMs) {
 
   let landmarkList = null;
   let mouth = null;
+  let headMatrix = null;   // MediaPipe's tracked 4x4 head pose — real 3D
 
   if (width && height) {
     const res = faceTracker.detect(video, nowMs);
     landmarkList = res.landmarks;
+    headMatrix = res.matrix;
     if (landmarkList) mouth = mouthTracker.track(landmarkList, width, height);
   }
 
@@ -144,7 +152,7 @@ function processFrame(nowMs) {
   let toothResult = { tracks: [], stats: teeth.tracker.stats() };
   try {
     toothResult = teeth.update(
-      video, landmarkList, mouth, anchor, nowMs / 1000, width, height);
+      video, landmarkList, mouth, anchor, nowMs / 1000, width, height, headMatrix);
   } catch (err) {
     console.warn('[main] tooth pipeline error (face/mouth tracking unaffected):', err);
   }
@@ -165,6 +173,7 @@ function processFrame(nowMs) {
     toothTiming: teeth.timing,
     toothReason: teeth.reason,
     selectedTooth: teeth.getSelected(),
+    anchors3D: teeth.anchor3DInfo(),
     detectorName: teeth.detector.name,
     detectorIsLearned: teeth.detector.isLearnedModel,
     pose: readout ? { yaw: readout.yaw, pitch: readout.pitch, roll: readout.roll } : null,
@@ -293,6 +302,8 @@ bind('toothDebugToggle', (e) => {
   if (st) st.checked = e.target.checked;
 });
 bind('statsToggle', (e) => debugRenderer.setShow({ stats: e.target.checked }));
+bind('ar3dToggle', (e) => ar3d.setVisible(e.target.checked));
+bind('ar3dModeSelect', (e) => ar3d.setMode(e.target.value));
 bind('contoursToggle', (e) => toothRenderer.setShow({ contours: e.target.checked }));
 bind('toothIdsToggle', (e) => toothRenderer.setShow({ ids: e.target.checked }));
 bind('confToggle', (e) => toothRenderer.setShow({ confidence: e.target.checked }));
@@ -339,5 +350,5 @@ if (!CameraManager.isSecureContext()) {
 window.dentalAR = {
   camera, faceTracker, mouthTracker, anchor, overlay, state,
   // Step 3
-  teeth, toothRenderer, debugRenderer,
+  teeth, toothRenderer, debugRenderer, ar3d,
 };

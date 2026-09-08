@@ -596,3 +596,181 @@ Turn on *Rectified ROI (debug)* to see exactly what the segmenter sees.
   the lower teeth are dim — visible in the prototype figures.
 * Tooth count is **not** anatomical: one detection ≈ one visible crown segment,
   which may merge or split relative to true dentition.
+
+---
+
+# STEP 3b — Tooth-level 3D AR anchoring
+
+Step 3 found and tracked individual teeth in **2D**, inside the mouth-local
+frame. Step 3b gives every tracked tooth its **own 3D spatial anchor**: a full
+4×4 transform with position, rotation and scale, in real 3D coordinate spaces,
+that a 3D tooth mesh / nerve canal / lesion volume can be attached to later.
+
+There is one 2D rectangle nowhere in this stage. Each proxy you see is a set of
+vertices in tooth-local metres pushed through that tooth's own transform and
+projected with a pinhole camera.
+
+## 21. Read this before trusting any number
+
+Depth is the whole problem. **A single RGB camera cannot measure how far away a
+tooth is.** Rather than hide that, every field of every pose carries a
+`provenance` tag, and the UI shows them:
+
+| Tag | Meaning | What is tagged with it |
+| --- | --- | --- |
+| `tracked` | MediaPipe's own per-frame 3D fit | head **orientation**, from the facial transformation matrix |
+| `measured` | derived from this frame's pixels | each tooth's **viewing ray** and **apparent size**, from its segmented contour |
+| `estimated` | model-based inference, not observation | **distance along that ray** — mouth distance plus a parabolic dental-arch offset |
+| `assumed` | a fixed constant | **metric scale**, ultimately pinned to an average adult face |
+
+So: *where a tooth is on the screen* is measured, *which way it faces* is
+tracked, *how far away it is* is estimated from anatomy, and *how many
+millimetres that is* rests on an assumption.
+
+**This is not medical-grade registration and must not be presented as one.**
+It is a correct 3D framework — real transforms, real coordinate spaces, real
+head-pose tracking, exact reprojection — with an anatomical prior standing in
+for depth sensing that a later stage would supply (CBCT registration, a
+TrueDepth/LiDAR camera, or stereo). Swap `archDepthAt()` and the mouth-distance
+source for real measurements and every transform downstream keeps working.
+
+## 22. Coordinate spaces
+
+```
+tooth-local  ──toothToCamera──►  camera  ──projectPoint──►  pixels
+     ▲                              ▲
+     └────── face frame ────────────┘   (rigid to the skull)
+```
+
+| Space | Units | Axes | Notes |
+| --- | --- | --- | --- |
+| **camera** | metres | +X right, +Y **down**, +Z into the scene | OpenCV convention; what `projectPoint` and the canvas assume |
+| **face** | metres | +X right, +Y **up**, +Z out toward the camera | origin at the mouth centre, rigid to the skull. **Teeth are static here** — which is what makes it the right frame to anchor in |
+| **tooth-local** | metres | +X across the arch, +Y crown→root, +Z out of the labial surface | origin at the crown centre. **This is where a 3D tooth model attaches** |
+
+MediaPipe reports its head matrix in an OpenGL-style frame (+Y up, camera down
+−Z). `basisFromHeadMatrix()` converts it with `C = diag(1, −1, −1)`; that is
+the one place a sign error would silently mirror everything, so it is isolated
+and unit-tested on its own.
+
+Note the face frame is **not** the same handedness as `MouthARAnchor`'s 2D
+pixel-space mouth-local frame (+Y down, units of mouth width). That frame is a
+weak-perspective screen convenience. `ToothPoseEstimator.estimate()` is the
+only place the two meet, and it converts explicitly.
+
+## 23. How a tooth pose is built
+
+1. **Distance to the mouth.** Prefer MediaPipe's metric head translation — it
+   is far steadier under yaw than depth-from-apparent-width, since a turned
+   mouth is foreshortened. Its units differ between builds, so the value is
+   accepted only if centimetres *or* metres lands in a physically sensible
+   range; otherwise it falls back to `f · 50 mm / mouthWidthPx`. The HUD says
+   which one is live.
+2. **Metric size.** Apparent mouth width at that distance, divided by the
+   foreshortening of the face's +X axis (so teeth do not shrink when the
+   subject looks away), and corrected for the fact that the mouth corners sit
+   further back on the arch than the midline.
+3. **Position.** The tooth is placed **on its measured viewing ray** — only the
+   distance along that ray is inferred. This is why an anchor reprojects
+   *exactly* onto the tooth the segmenter found (measured error < 0.01 px),
+   while depth ordering still comes from the arch.
+4. **Orientation.** +Z follows the arch normal at that tooth's position across
+   the mouth; +Y runs crown→root (up for the upper arch, down for the lower);
+   +X is the cross product, so the basis is right-handed by construction. The
+   whole thing is then rotated by the tracked head.
+5. **Scale.** Width and height from the segmented contour; labial-lingual
+   thickness from the crown prior.
+
+## 24. Modules
+
+```
+ToothTracker  ──►  ToothPoseEstimator  ──►  Tooth3DAnchor  ──►  AR3DRenderer
+ 2D tracks         2D + head pose → 3D      one per tooth,      projects proxies
+ with stable IDs   with provenance tags     holds the 4×4       (box / axes / sphere)
+```
+
+* `core/math/mat4.js` — column-major 4×4s, rigid inverse, pinhole projection.
+* `core/ToothPoseEstimator.js` — the honesty boundary. Everything estimated or
+  assumed lives here, tagged.
+* `core/Tooth3DAnchor.js` — the anchor. `getMatrix()` is directly usable as a
+  three.js `Object3D.matrix`; `attach(model)` is the Step-4 seam.
+  `Tooth3DAnchorSet` keeps one anchor per tooth ID so anchors persist with
+  their tooth instead of being rebuilt (and renumbered) every frame.
+* `ui/AR3DRenderer.js` — draws the debug proxies, sorted back-to-front by real
+  camera-space depth.
+
+Attaching real geometry later:
+
+```js
+const anchor = teeth.anchors3D.get(toothId);
+anchor.attach(myToothMesh);          // authored in tooth-local metres
+object3D.matrix.fromArray(anchor.getMatrix());
+```
+
+## 25. Verification — proving it is 3D, not a repositioned rectangle
+
+`tests/anchor3d.test.mjs` (17 tests) builds a **forward-simulated scene**:
+ground-truth 3D teeth are projected to synthetic 2D observations, those
+observations are fed to the estimator, and the recovered 3D is compared with
+the truth. Three properties separate a real 3D anchor from a fake one:
+
+| Property | Result |
+| --- | --- |
+| **Round-trip** — an anchor must reproject onto the tooth it came from | **< 0.01 px** across ±20° yaw |
+| **Rigidity** — a tooth must stay put in face space while the head turns | **1.9 mm** over a ±25° yaw sweep — versus **21.3 mm** for the same code run without the head matrix, an 11× difference |
+| **Accuracy** — recovered 3D vs the simulated ground truth | **2.3 mm** |
+
+The rigidity control is the important one: an implementation that merely moves
+a 2D box around cannot be rigid in the skull's frame, because it has no notion
+of the head's 3D rotation at all. The 21.3 mm figure is what that looks like.
+
+The accuracy number measures the **geometry pipeline only** — the simulator
+uses the same arch prior the estimator assumes. It says the transforms are
+right. It says nothing about how well that prior matches a real mouth, which is
+the dominant real-world error and is not measurable from RGB at all.
+
+Also covered: the GL→CV basis conversion, the head-matrix unit heuristic,
+distinct transforms per tooth, arch curvature actually bending, metric output
+scaling linearly with the assumed mouth width, distance-invariant tooth size,
+per-ID anchor lifetime, the attachment seam, and that every pose tags its own
+provenance (including downgrading `orientation` to `estimated` when no head
+matrix is available).
+
+## 26. Using it
+
+Panel → **3D tooth anchors** → *Show 3D proxy per tooth*.
+
+* **3D box** — the outward face is filled, so you can watch each tooth's facing
+  change as you turn your head. That change is the visible proof of 3D.
+* **Coordinate axes** — per-tooth X/Y/Z.
+* **Sphere** — radius shrinks with distance because it is a projected 3D
+  offset, not a fixed pixel size.
+
+The panel shows the live anchor count, the mouth distance, and **which depth
+source is running**. Tap a tooth to see its 3D position and its rotation *in
+the face frame* — camera-frame Euler angles are correct but read as ±180° at
+rest, which means nothing to a human; in the face frame a central tooth sits
+near zero and the number is the arch splay.
+
+`Log 1 frame` prints the full anchor table — per tooth: position in cm,
+rotation, size in mm — plus the provenance line and the active depth source.
+
+## 27. Step 3b known limitations
+
+* **Depth is a prior, not a measurement.** Every tooth's distance comes from a
+  parabolic arch model, not from this person's anatomy. An unusual arch, an
+  orthodontic case or a partial dentition will be wrong in depth while still
+  looking right on screen, because the reprojection is exact either way.
+* **Absolute scale is unobservable.** A big mouth far away and a small mouth
+  near by are pixel-identical. Everything metric inherits the average-face
+  assumption — expect roughly ±10% between adults.
+* **Arch splay drifts a little with head yaw** (< 8° at 25°), because the prior
+  is evaluated at the tooth's *observed* position across the mouth and yaw
+  shifts that observation.
+* **Orientation is the head's, not the tooth's.** Individual tilt, rotation or
+  crowding of a real tooth is not measured; each tooth is oriented by the arch
+  model plus the tracked head pose.
+* **No occlusion and no lighting.** Proxies are drawn over the video, sorted by
+  depth but not clipped by lips or by each other.
+* **Tooth IDs are tracking IDs**, not FDI/anatomical numbers — unchanged
+  from Step 3.
