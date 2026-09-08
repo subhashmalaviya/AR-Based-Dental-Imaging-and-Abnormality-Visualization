@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0d1117" />
+  <title>Dental AR — Step 2: Mouth Tracking</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__title">Dental AR — Step 2</span>
+      <span class="brand__sub">Real-time face &amp; mouth tracking</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat__label">FPS</span><span id="fpsValue" class="stat__value">—</span></div>
+      <div class="stat"><span class="stat__label">Backend</span><span id="delegateValue" class="stat__value">—</span></div>
+      <div class="stat"><span class="stat__label">Input</span><span id="resValue" class="stat__value">—</span></div>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="stage">
+    <div class="viewport">
+      <video id="camera" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <aside class="panel">
+      <section class="panel__block">
+        <h2 class="panel__heading">Tracking status</h2>
+        <div class="pills">
+          <span id="faceStatus" class="pill pill--bad">Face not detected</span>
+          <span id="mouthStatus" class="pill pill--bad">Mouth not tracked</span>
+          <span id="anchorStatus" class="pill pill--bad">Anchor lost</span>
+          <span id="teethStatus" class="pill pill--bad">Teeth: 0</span>
+        </div>
+        <dl class="readout">
+          <div><dt>Head pose</dt><dd id="poseValue">—</dd></div>
+          <div><dt>Mouth opening</dt><dd id="openingValue">—</dd></div>
+          <div><dt>Teeth detected</dt><dd id="teethCountValue">0</dd></div>
+          <div><dt>Avg confidence</dt><dd id="teethConfValue">—</dd></div>
+          <div><dt>Tooth inference</dt><dd id="inferValue">—</dd></div>
+          <div><dt>Tracking</dt><dd id="trackValue">—</dd></div>
+          <div><dt>Total (Step 3)</dt><dd id="totalValue">—</dd></div>
+        </dl>
+        <div class="meter"><div id="openingBar" class="meter__fill"></div></div>
+      </section>
+
+      <section class="panel__block" id="selectedPanel" hidden>
+        <h2 class="panel__heading">Selected tooth</h2>
+        <dl class="readout">
+          <div><dt>ID</dt><dd id="selIdValue">—</dd></div>
+          <div><dt>Confidence</dt><dd id="selConfValue">—</dd></div>
+          <div><dt>Tracking</dt><dd id="selTrackingValue">—</dd></div>
+          <div><dt>Arch</dt><dd id="selArchValue">—</dd></div>
+        </dl>
+        <p class="hint">
+          Internal tracking ID only — <strong>not</strong> an FDI/anatomical
+          tooth number, and no clinical claim of any kind.
+        </p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Tooth detection <span class="tag">Step 3</span></h2>
+        <label class="row"><input type="checkbox" id="teethToggle" checked /><span>Enable tooth detection</span></label>
+        <label class="row"><input type="checkbox" id="contoursToggle" checked /><span>Tooth contours</span></label>
+        <label class="row"><input type="checkbox" id="toothIdsToggle" checked /><span>Tooth IDs</span></label>
+        <label class="row"><input type="checkbox" id="confToggle" checked /><span>Confidence</span></label>
+        <label class="row"><input type="checkbox" id="boxesToggle" /><span>Bounding boxes</span></label>
+        <label class="row"><input type="checkbox" id="roiToggle" /><span>Mouth ROI</span></label>
+        <label class="row"><input type="checkbox" id="rectifiedToggle" /><span>Rectified ROI (debug)</span></label>
+        <button id="resetTeethBtn" class="btn" style="margin-top:8px">Reset tooth tracking</button>
+        <p class="hint" id="detectorValue">—</p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Tooth tuning</h2>
+        <label class="row row--stack">
+          <span>Tooth smoothing</span>
+          <select id="toothSmoothingSelect">
+            <option value="responsive">Responsive</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="smooth">Smooth</option>
+          </select>
+        </label>
+        <label class="row row--stack">
+          <span>Split sensitivity <em>(higher = more teeth)</em></span>
+          <input type="range" id="splitRange" min="0.85" max="0.99" step="0.01" value="0.94" />
+        </label>
+        <label class="row row--stack">
+          <span>Detect every N frames</span>
+          <select id="detectEveryNSelect">
+            <option value="1" selected>1 (every frame)</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Camera</h2>
+        <div class="buttons">
+          <button id="startBtn" class="btn btn--primary">Start</button>
+          <button id="stopBtn" class="btn">Stop</button>
+          <button id="switchBtn" class="btn">Flip</button>
+        </div>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Display</h2>
+        <label class="row"><input type="checkbox" id="landmarksToggle" checked /><span>Show landmarks &amp; anchor</span></label>
+        <label class="row"><input type="checkbox" id="meshToggle" /><span>Show full face mesh</span></label>
+        <label class="row"><input type="checkbox" id="overlayToggle" checked /><span>Show AR overlay</span></label>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">AR overlay</h2>
+        <label class="row row--stack">
+          <span>Content</span>
+          <select id="modeSelect">
+            <option value="image" selected>IIT Delhi logo</option>
+            <option value="rect">Transparent rectangle</option>
+          </select>
+        </label>
+        <label class="row row--stack">
+          <span>Size <em>(mouth widths)</em></span>
+          <input type="range" id="sizeRange" min="0.5" max="3" step="0.05" value="1.5" />
+        </label>
+        <label class="row row--stack">
+          <span>Opacity</span>
+          <input type="range" id="opacityRange" min="0" max="1" step="0.01" value="0.85" />
+        </label>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Stability</h2>
+        <label class="row row--stack">
+          <span>Smoothing</span>
+          <select id="smoothingSelect">
+            <option value="responsive">Responsive (least lag)</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="smooth">Smooth (least jitter)</option>
+          </select>
+        </label>
+        <p class="hint">
+          One-euro filtering: heavy smoothing while still, opening up
+          automatically as the head moves so the overlay does not drag.
+        </p>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

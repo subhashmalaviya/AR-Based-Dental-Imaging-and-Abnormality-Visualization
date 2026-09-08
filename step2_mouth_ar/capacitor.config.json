@@ -1,0 +1,16 @@
+{
+  "appId": "in.ac.iitd.dentalar.step2",
+  "appName": "Dental AR Step 2",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
