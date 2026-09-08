@@ -43,6 +43,7 @@ the camera pose changes per frame.** Nothing is a flat screen-space sticker.
 ├── ti1.png, iitd_logo.png    Step 1 sample cup photo + logo to overlay
 ├── tv1.mp4, mouthtestvideo.mp4   Step 1 sample cup video; real mouth footage used
 │                                  to develop/validate Step 3's tooth detector
+├── vercel.json               builds step2_mouth_ar/ when deploying this monorepo to Vercel
 └── .gitignore
 ```
 
@@ -81,10 +82,17 @@ npm run dev                        # http://localhost:5173 — camera works on l
 ```
 
 Open the printed URL in a browser, click **Start**, and allow camera access.
+
 To test on an actual **phone/tablet** (recommended — this is a live-camera
-system), the camera requires a secure context (HTTPS or `localhost`); see
+system), the camera requires a secure context (HTTPS or `localhost`).
+**Easiest: deploy to Vercel** — the root-level `vercel.json` builds this
+subdirectory automatically (`cd step2_mouth_ar && npm install && npm run build`,
+serving `step2_mouth_ar/dist`), and Vercel's real HTTPS certificate works on
+Android *and* iOS/iPadOS out of the box, unlike a self-signed local cert. Just
+import this repo on [vercel.com/new](https://vercel.com/new) and open the
+deployed URL on the device. For local-network testing instead, see
 **[`step2_mouth_ar/README.md` §7](step2_mouth_ar/README.md#7-testing-on-a-real-phone-or-tablet)**
-for the exact steps (`python3 serve_https.py`, or a `cloudflared` tunnel for iOS).
+(`python3 serve_https.py`, or a `cloudflared` tunnel for iOS).
 
 That README also covers: the mouth-anchor coordinate math, why a classical
 CV method (not a neural net) is used for tooth segmentation and how it works,

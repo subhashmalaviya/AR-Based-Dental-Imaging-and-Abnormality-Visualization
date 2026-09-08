@@ -228,7 +228,29 @@ frames before the anchor reports lost, so the overlay does not strobe.
 `http://192.168.x.x` does **not**, and the failure is silent. The app detects
 this and shows a red banner rather than hanging.
 
-### Android (easiest)
+### Option A — deploy to Vercel (easiest, works on Android *and* iOS/iPadOS)
+
+This repo is a monorepo — the web app lives in `step2_mouth_ar/`, not the repo
+root — so a plain "Import Git Repository" on Vercel builds nothing at the root
+and 404s. The root-level **`vercel.json`** fixes that automatically:
+
+```json
+{
+  "installCommand": "cd step2_mouth_ar && npm install",
+  "buildCommand": "cd step2_mouth_ar && npm run build",
+  "outputDirectory": "step2_mouth_ar/dist"
+}
+```
+
+`npm install` there also fires the `postinstall` script (§2), so the MediaPipe
+WASM runtime and face model are fetched automatically during the Vercel build
+— no manual steps, no dashboard "Root Directory" configuration needed. Once
+deployed, Vercel serves it over **HTTPS with a real certificate**, which sidesteps
+the self-signed-certificate problem below entirely — this is the easiest way to
+test on an iPhone/iPad, since Safari usually refuses self-signed certs outright.
+Just open the `https://<project>.vercel.app` URL directly on the device.
+
+### Option B — HTTPS on your own machine, over LAN
 
 ```bash
 npm run build
@@ -242,10 +264,11 @@ Or skip certificates entirely with Chrome's origin allowlist:
 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` → add
 `http://<lan-ip>:5173` → relaunch, then `npm run dev`.
 
-### iPhone / iPad
+### Option C — iPhone/iPad without deploying (a tunnel, not the cert)
 
-iOS Safari usually **refuses** self-signed certificates. Use a tunnel, which
-gives a real certificate:
+iOS Safari usually **refuses** self-signed certificates, which is why Option A
+(Vercel) is the easiest iOS path. To test local, uncommitted changes without
+deploying, use a tunnel instead, which gives a real certificate:
 
 ```bash
 npm run build && npx vite preview --host     # terminal 1

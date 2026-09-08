@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd step2_mouth_ar && npm install",
+  "buildCommand": "cd step2_mouth_ar && npm run build",
+  "outputDirectory": "step2_mouth_ar/dist"
+}
