@@ -55,6 +55,7 @@ const state = {
   // Step 3 — the mouth AR quad is off by default now, because it would sit on
   // top of the teeth it is meant to let you see.
   showTeeth: true,
+  toothDebug: false,   // hides Step-2 clutter + shows the segmenter's own view
 };
 
 // ---------------------------------------------------------------- overlay art
@@ -83,25 +84,36 @@ function resizeCanvas() {
   video.style.transform = t;
   canvas.style.transform = t;
   state.mirrored = mirror;
+  // Text/panels must be un-mirrored or every label reads backwards.
+  toothRenderer.setMirrored(mirror);
+  debugRenderer.setMirrored(mirror);
 }
 
-function drawFrame(landmarkList, mouth, toothTracks) {
+function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const { width: w, height: h } = canvas;
 
-  if (state.showLandmarks) {
+  // Tooth-debug mode suppresses the Step-2 lip outline, anchor axes and AR
+  // quad. Those are drawn in the same place as the teeth and, at a normal
+  // camera distance, completely bury the tooth contours — which is the main
+  // reason detection *looked* like it wasn't working.
+  const clutter = !state.toothDebug;
+
+  if (state.showLandmarks && clutter) {
     if (state.showMesh && landmarkList) landmarks.drawAllLandmarks(landmarkList, w, h);
     if (mouth && landmarkList) landmarks.drawMouth(mouth, landmarkList, w, h);
     landmarks.drawAnchor(anchor);
   }
-  if (state.showOverlay) overlay.render(anchor);
+  if (state.showOverlay && clutter) overlay.render(anchor);
 
-  // Step 3 — drawn after the mouth overlay so tooth contours stay readable.
+  // Step 3 — drawn last so tooth contours are never painted over.
   debugRenderer.drawROI(teeth.roi, anchor);
   if (state.showTeeth && toothTracks?.length) {
     toothRenderer.render(toothTracks, anchor, teeth.selectedId);
   }
-  debugRenderer.drawRectifiedPiP(teeth.lastRoiImage, w, h);
+  debugRenderer.drawSegmenterView(
+    teeth.lastRoiImage, teeth.debugData, toothTracks, teeth.roi, w, h);
+  debugRenderer.drawStats(teeth.debugData, toothStats, teeth.timing, teeth.detectFps, w);
 }
 
 // ----------------------------------------------------------------- main loop
@@ -138,7 +150,7 @@ function processFrame(nowMs) {
   }
 
   const fps = camera.tick(nowMs);
-  drawFrame(landmarkList, mouth, toothResult.tracks);
+  drawFrame(landmarkList, mouth, toothResult.tracks, toothResult.stats);
 
   const readout = anchor.getReadout();
   hud.update({
@@ -271,6 +283,16 @@ document.getElementById('modeSelect').addEventListener('change', (e) => {
 const bind = (id, fn) => document.getElementById(id)?.addEventListener('change', fn);
 
 bind('teethToggle', (e) => { state.showTeeth = e.target.checked; teeth.setEnabled(e.target.checked); });
+bind('toothDebugToggle', (e) => {
+  state.toothDebug = e.target.checked;
+  // Turning debug on implies you want to see the segmenter's view and numbers.
+  debugRenderer.setShow({ rectified: e.target.checked, stats: e.target.checked });
+  const rect = document.getElementById('rectifiedToggle');
+  const st = document.getElementById('statsToggle');
+  if (rect) rect.checked = e.target.checked;
+  if (st) st.checked = e.target.checked;
+});
+bind('statsToggle', (e) => debugRenderer.setShow({ stats: e.target.checked }));
 bind('contoursToggle', (e) => toothRenderer.setShow({ contours: e.target.checked }));
 bind('toothIdsToggle', (e) => toothRenderer.setShow({ ids: e.target.checked }));
 bind('confToggle', (e) => toothRenderer.setShow({ confidence: e.target.checked }));
@@ -282,6 +304,11 @@ bind('detectEveryNSelect', (e) => teeth.setDetectEveryN(Number(e.target.value)))
 
 document.getElementById('splitRange')?.addEventListener('input', (e) => {
   teeth.detector.setParams?.({ splitRatio: Number(e.target.value) });
+});
+document.getElementById('logFrameBtn')?.addEventListener('click', () => {
+  teeth.logNextFrame();
+  hud.setBanner('Logged one frame of detections to the browser console (F12).', 'info');
+  setTimeout(() => hud.setBanner('', 'info'), 3500);
 });
 document.getElementById('resetTeethBtn')?.addEventListener('click', () => {
   teeth.reset();

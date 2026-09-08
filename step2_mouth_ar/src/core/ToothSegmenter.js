@@ -144,10 +144,27 @@ export class ToothSegmenter extends ToothDetector {
     }
 
     // ---- 4. split each arch into teeth --------------------------------
-    return [
+    const teeth = [
       ...this._splitArch(upper, white, W, H, roi, 'upper'),
       ...this._splitArch(lower, white, W, H, roi, 'lower'),
     ];
+
+    // Keep the intermediate stages so the debug view can show exactly what
+    // the segmenter saw. This is what makes a weak detection diagnosable on
+    // a phone: you can see whether the whiteness threshold found any enamel
+    // at all, or whether the mouth was simply too dark.
+    this.lastDebug = {
+      width: W, height: H,
+      aperturePx: inside,
+      threshold: thr,
+      candidate: cand,          // after threshold + morphology
+      upper, lower,             // per-arch masks actually split into teeth
+      candidatePx: cand.reduce((s, v) => s + v, 0),
+      archPx: upper.reduce((s, v) => s + v, 0) + lower.reduce((s, v) => s + v, 0),
+      toothCount: teeth.length,
+    };
+
+    return teeth;
   }
 
   _splitArch(arch, white, W, H, roi, archName) {

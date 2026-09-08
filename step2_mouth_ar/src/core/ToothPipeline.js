@@ -40,6 +40,53 @@ export class ToothPipeline {
 
     this.timing = { detect: 0, track: 0, total: 0 };
     this.reason = null;          // why nothing was detected, for the HUD
+
+    // Detection FPS is measured separately from camera FPS: with frame
+    // skipping they are not the same number, and conflating them hides
+    // whether the detector is actually keeping up.
+    this._detectTimes = [];
+    this.detectFps = 0;
+    this._logNextFrame = false;
+  }
+
+  /** Ask the pipeline to dump one frame's full detection state to the console. */
+  logNextFrame() { this._logNextFrame = true; }
+
+  /** The segmenter's intermediate masks, for the debug view. */
+  get debugData() { return this.detector.lastDebug ?? null; }
+
+  _dumpFrame(tracks) {
+    const dbg = this.debugData;
+    const rows = tracks.map((t) => {
+      const s = t.smoothed ?? t;
+      return {
+        id: t.id, arch: t.arch, status: t.status,
+        confidence: +s.confidence.toFixed(3),
+        center_u: +s.center.u.toFixed(4), center_v: +s.center.v.toFixed(4),
+        box_w: +s.box.w.toFixed(4), box_h: +s.box.h.toFixed(4),
+        contourPoints: s.contour?.length ?? 0,
+        hits: t.hits, missing: t.missing,
+      };
+    });
+    /* eslint-disable no-console */
+    console.log(
+      `%c[Step3] TEETH DETECTED THIS FRAME: ${tracks.length}`,
+      'font-weight:bold;font-size:14px;color:#7cf6b0',
+    );
+    console.log(`  detector      : ${this.detector.name}`);
+    console.log(`  neural network: ${this.detector.isLearnedModel ? 'YES' : 'NO — classical CV'}`);
+    console.log(`  inference     : ${this.timing.detect.toFixed(2)} ms`);
+    console.log(`  detection FPS : ${this.detectFps.toFixed(1)}`);
+    if (dbg) {
+      console.log(`  ROI           : ${dbg.width}x${dbg.height} px`);
+      console.log(`  aperture px   : ${dbg.aperturePx}`);
+      console.log(`  whiteness thr : ${dbg.threshold.toFixed(1)}`);
+      console.log(`  candidate px  : ${dbg.candidatePx}  (pixels passing the enamel threshold)`);
+      console.log(`  arch px       : ${dbg.archPx}  (kept after upper/lower arch extraction)`);
+    }
+    console.table(rows);
+    /* eslint-enable no-console */
+    return rows;
   }
 
   async init() { await this.detector.init?.(); }
@@ -111,11 +158,25 @@ export class ToothPipeline {
         this.lastDetections = [];
       }
       detectMs = performance.now() - d0;
+
+      const now = performance.now();
+      this._detectTimes.push(now);
+      while (this._detectTimes.length > 30) this._detectTimes.shift();
+      const n = this._detectTimes.length;
+      if (n >= 2) {
+        const span = (this._detectTimes[n - 1] - this._detectTimes[0]) / 1000;
+        this.detectFps = span > 0 ? (n - 1) / span : 0;
+      }
     }
     this._frame += 1;
 
     const tracks = this.tracker.update(shouldDetect ? this.lastDetections : []);
     this.smoother.apply(tracks, tSec);
+
+    if (this._logNextFrame) {
+      this._logNextFrame = false;
+      this.lastFrameDump = this._dumpFrame(this.tracker.visibleTracks());
+    }
     return this._finish(t0, detectMs);
   }
 

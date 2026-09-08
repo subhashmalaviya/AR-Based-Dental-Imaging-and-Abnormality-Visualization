@@ -71,8 +71,17 @@
         <label class="row"><input type="checkbox" id="confToggle" checked /><span>Confidence</span></label>
         <label class="row"><input type="checkbox" id="boxesToggle" /><span>Bounding boxes</span></label>
         <label class="row"><input type="checkbox" id="roiToggle" /><span>Mouth ROI</span></label>
-        <label class="row"><input type="checkbox" id="rectifiedToggle" /><span>Rectified ROI (debug)</span></label>
-        <button id="resetTeethBtn" class="btn" style="margin-top:8px">Reset tooth tracking</button>
+        <label class="row"><input type="checkbox" id="rectifiedToggle" /><span>Segmenter view (rectified ROI + masks)</span></label>
+        <label class="row"><input type="checkbox" id="statsToggle" /><span>Detection stats panel</span></label>
+        <label class="row row--highlight">
+          <input type="checkbox" id="toothDebugToggle" />
+          <span><strong>Tooth debug mode</strong><br>
+            <em>hides face/mouth overlay so teeth are visible, shows what the detector sees</em></span>
+        </label>
+        <div class="buttons" style="margin-top:8px">
+          <button id="logFrameBtn" class="btn">Log 1 frame</button>
+          <button id="resetTeethBtn" class="btn">Reset tracking</button>
+        </div>
         <p class="hint" id="detectorValue">—</p>
       </section>
 
