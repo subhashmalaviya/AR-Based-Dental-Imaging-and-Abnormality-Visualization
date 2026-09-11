@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Steps 2-3 of AR Based Dental Imaging: real-time face/mouth tracking, AR anchor, and tooth detection/tracking",
   "scripts": {
-    "postinstall": "node scripts/vendor-wasm.mjs && node scripts/fetch-model.mjs",
-    "setup": "npm run vendor:wasm && npm run fetch:model",
+    "postinstall": "node scripts/vendor-wasm.mjs && node scripts/vendor-ort.mjs && node scripts/fetch-model.mjs",
+    "setup": "npm run vendor:wasm && npm run vendor:ort && npm run fetch:model",
     "dev": "vite --host",
     "dev:https": "vite --host --mode https",
     "build": "vite build",
@@ -16,7 +16,8 @@
     "fetch:model": "node scripts/fetch-model.mjs",
     "cap:sync": "npm run build && cap sync",
     "cap:android": "npm run build && cap sync android && cap open android",
-    "cap:ios": "npm run build && cap sync ios && cap open ios"
+    "cap:ios": "npm run build && cap sync ios && cap open ios",
+    "vendor:ort": "node scripts/vendor-ort.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.14",

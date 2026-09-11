@@ -188,6 +188,16 @@ export function decodeToothMaps(maps, W, H, aperture = null, o = {}) {
     orphanOf.set(lab, best);
   }
 
+  // ---- split merged teeth (hierarchical re-seeding) -----------------------
+  // A region far wider than the typical tooth in this crop is usually two or
+  // more crowns the network could not separate at the global threshold (the
+  // thin upper band of a wide-open mouth, dim side teeth). Look again inside
+  // it with a lower centre threshold and a smaller peak window; if that finds
+  // several peaks, re-grow the region from them. Uses only the model's own
+  // evidence — no tooth is invented where no centre response exists.
+  // Opt-in: on validation it removed some merges but added more duplicates.
+  if (o.splitWide === true) nextLab = splitWide(labels, nextLab, peaks.length, ctr, bnd, fg, W, H, o, bndWeight);
+
   // ---- per-instance statistics ------------------------------------------
   const L = nextLab;
   const area = new Int32Array(L), sx = new Float64Array(L), sy = new Float64Array(L);
@@ -230,6 +240,63 @@ export function decodeToothMaps(maps, W, H, aperture = null, o = {}) {
     });
   }
   return { instances, labels };
+}
+
+function splitWide(labels, L, nSeeded, ctr, bnd, fg, W, H, o, bndWeight) {
+  const factor = o.splitFactor ?? 1.7;
+  const reThr = o.resplitCtrThr ?? 0.08;
+  const reR = o.resplitPeakRadius ?? 2;
+  const n = W * H;
+  const x0 = new Int32Array(L).fill(W), x1 = new Int32Array(L).fill(-1), area = new Int32Array(L);
+  for (let i = 0; i < n; i++) {
+    const l = labels[i];
+    if (l < 0) continue;
+    const x = i % W;
+    area[l]++;
+    if (x < x0[l]) x0[l] = x;
+    if (x > x1[l]) x1[l] = x;
+  }
+  const widths = [];
+  for (let l = 0; l < L; l++) if (area[l] > 0) widths.push(x1[l] - x0[l] + 1);
+  if (widths.length < 2) return L;
+  widths.sort((a, b) => a - b);
+  const typical = widths[widths.length >> 1];
+  let next = L;
+  for (let l = 0; l < L; l++) {
+    if (!area[l] || (x1[l] - x0[l] + 1) < factor * typical) continue;
+    const inside = new Uint8Array(n);
+    for (let i = 0; i < n; i++) if (labels[i] === l) inside[i] = 1;
+    const sub = findPeaks(ctr, W, H, inside, reThr, reR)
+      // keep peaks at least ~half a typical tooth apart
+      .sort((a, b) => b.score - a.score)
+      .filter((p, k, arr) => arr.slice(0, k).every((q) => Math.abs(q.x - p.x) >= 0.5 * typical));
+    if (sub.length < 2) continue;
+    const newLab = sub.map((_, k) => (k === 0 ? l : next++));
+    const dist = new Int32Array(n).fill(0x7fffffff);
+    const buckets = [];
+    const push = (c, i) => { (buckets[c] ??= []).push(i); };
+    for (let i = 0; i < n; i++) if (inside[i]) labels[i] = -2;
+    sub.forEach((p, k) => { labels[p.i] = newLab[k]; dist[p.i] = 0; push(0, p.i); });
+    for (let c = 0; c < buckets.length; c++) {
+      const b = buckets[c];
+      if (!b) continue;
+      for (let q = 0; q < b.length; q++) {
+        const i = b[q];
+        if (dist[i] !== c) continue;
+        const x = i % W, y = (i / W) | 0;
+        for (const [dx, dy] of N4) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+          const j = yy * W + xx;
+          if (!inside[j]) continue;
+          const nc = c + 1 + Math.round(bndWeight * bnd[j]);
+          if (nc < dist[j]) { dist[j] = nc; labels[j] = labels[i]; push(nc, j); }
+        }
+      }
+    }
+    for (let i = 0; i < n; i++) if (labels[i] === -2) labels[i] = l;   // unreachable crumbs
+  }
+  return next;
 }
 
 /**

@@ -113,6 +113,9 @@ def centers_and_boundary(inst):
 
 
 # ----------------------------------------------------------- augmentation
+LOWLIGHT = False   # set by --lowlight: extra dim-room / webcam augmentation
+
+
 def augment(img, lab, rng):
     if rng.random() < 0.5:
         img, lab = img[:, ::-1], lab[:, ::-1]
@@ -133,6 +136,13 @@ def augment(img, lab, rng):
     g = x.mean(2, keepdims=True)
     x = g + (x - g) * rng.uniform(0.6, 1.4)                                        # saturation
     x = np.clip(x, 0, 1) ** rng.uniform(0.7, 1.45)                                 # gamma
+    if LOWLIGHT and rng.random() < 0.45:
+        # Dim room lit by a warm lamp, seen by a laptop/phone front camera:
+        # strong under-exposure, orange cast, and the sensor noise that the
+        # camera's auto-gain amplifies in the dark.
+        x = x * rng.uniform(0.22, 0.6)
+        x = x * np.array([rng.uniform(1.0, 1.25), rng.uniform(0.9, 1.05), rng.uniform(0.65, 0.9)], np.float32)
+        x = x + np.random.normal(0, rng.uniform(0.01, 0.035), x.shape).astype(np.float32)
     img = (np.clip(x, 0, 1) * 255).astype(np.uint8)
     if rng.random() < 0.4:                                                         # low-res phone
         f = rng.uniform(0.35, 0.8)
@@ -269,7 +279,11 @@ def main():
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--seed", type=int, default=5)
+    ap.add_argument("--init", help="fine-tune from this state_dict (.pt)")
+    ap.add_argument("--lowlight", action="store_true", help="extra low-light augmentation")
     a = ap.parse_args()
+    global LOWLIGHT
+    LOWLIGHT = a.lowlight
 
     torch.manual_seed(a.seed)
     random.seed(a.seed)
@@ -286,6 +300,9 @@ def main():
     print(f"train: DentalAI {n_da} crops, EasyPortrait {n_ep} crops", flush=True)
 
     net = ToothNet()
+    if a.init:
+        net.load_state_dict(torch.load(a.init))
+        print(f"fine-tuning from {a.init}", flush=True)
     n_params = sum(p.numel() for p in net.parameters())
     print(f"ToothNet-lite: {n_params} parameters", flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=a.lr, weight_decay=1e-4)
@@ -360,6 +377,7 @@ def main():
         "parameters": int(n_params),
         "training": {
             "epochs": a.epochs, "samples_per_epoch": a.per_epoch, "batch": a.bs, "seed": a.seed,
+            "init": a.init, "lowlight_augmentation": a.lowlight,
             "torch": torch.__version__,
             "datasets": [
                 {"name": "DentalAI", "license": "CC BY 4.0", "author": "Pawan Valluri (2023)",

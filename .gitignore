@@ -39,6 +39,7 @@ step2_mouth_ar/tools/_diag_output/
 # them out of git avoids storing a second copy of what npm/the model host
 # already serve. See step2_mouth_ar/README.md "Quick start".
 step2_mouth_ar/public/wasm/
+step2_mouth_ar/public/ort/
 step2_mouth_ar/public/models/*
 # the trained tooth model is small and is a project artefact: commit it
 !step2_mouth_ar/public/models/tooth_seg.onnx

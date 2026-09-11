@@ -197,6 +197,14 @@ export class HUD {
 
   setModelInfo(text) { if (this.el.modelInfo) this.el.modelInfo.textContent = text; }
 
+  /** Persistent (not cleared by setBanner) — a fallback must never go unnoticed. */
+  setDetectorWarning(text) {
+    const el = document.getElementById('detectorWarning');
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text ?? '';
+  }
+
   /**
    * 3D anchor read-out. Distance and depth source are shown together on
    * purpose: the number is only as good as where it came from, and the user

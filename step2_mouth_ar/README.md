@@ -916,6 +916,38 @@ How to read these:
 * The own-video ground truth is provisional (§39). The two public test sets
   are independent of this project.
 
+### 32b. v3.3 — low-light model (ToothNet-lite 1.1)
+
+Real recordings made in a dim room with a laptop webcam showed two problems.
+First, the trained model was not running at all (see §38b — the classical
+fallback was active). Second, in simulated dim light the v1.0 model still
+*sees* the teeth (mask IoU barely drops) but **fails to separate them**:
+neighbouring crowns, especially the upper row, merge into one region.
+
+v1.1 is v1.0 fine-tuned for 16 epochs with low-light augmentation (strong
+under-exposure, warm lamp cast, amplified sensor noise). It was **selected on
+validation data only** against v1.0, a test-time auto-gain, and wide-region
+re-splitting (normal + simulated low light; both extras lost on validation and
+stay off). Test results — "low light" is the same test data darkened to 28–45 %
+exposure with a warm cast and sensor noise:
+
+| Test set | Classical v1 | Model 1.0 (3.2.0) | **Model 1.1 (3.3.0)** |
+|---|---|---|---|
+| Own video, all teeth — normal light | F1 53.1 % | F1 83.9 % (R 78.6 %) | F1 83.1 % (R 78.6 %) |
+| Own video, all teeth — **low light** | F1 20.1 % | F1 57.3 % (R 41.7 %, 50 merges) | **F1 79.1 % (R 69.9 %, 20 merges)** |
+| Own video, clear teeth — normal light | F1 63.8 % | F1 88.7 % | F1 85.5 % |
+| Own video, clear teeth — **low light** | F1 25.2 % | F1 69.0 % | **F1 84.9 %** |
+| EasyPortrait test teeth IoU — normal / low light | 31.1 % / 5.2 % | 68.7 % / 67.3 % | 68.4 % / 67.9 % |
+| DentalAI test instances F1 | — | 82.0 % | **83.2 %** (303 vs 335 missed) |
+
+(Model-1.0 numbers here use the final decoder setting, boundary weight 20,
+so they differ slightly from §32.) In dim light 1.1 recovers most of what 1.0
+lost; in normal light it is equal on the public test sets and slightly lower on
+the small own-video set (about −1 to −3 F1 points). The thin upper row of a
+wide-open mouth can still come out as one region when it is only a few pixels
+tall. A **raw** recording in the target room, annotated in `eval.html`, is the
+way to confirm these numbers on real low-light footage.
+
 ## 33. Performance
 
 | Quantity | Measured | Where |
@@ -1034,6 +1066,29 @@ See [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md): twelve recording conditions
 lighting, partial visibility, background), how to annotate them, and which
 metrics to report for each.
 
+## 38b. Troubleshooting: "only the front / lower teeth are detected"
+
+Check the burned-in line of an annotated recording or the *Detector* box in
+the panel. If it says **classical**, the trained model is not running and you
+are seeing the v1 baseline — which, as §32 shows, misses most upper and side
+teeth.
+
+Up to v3.2.0 this happened silently under `npm run dev`: Vite rewrote ONNX
+Runtime's relative WebAssembly URL, the request was answered with
+`index.html`, the model failed to initialise, and the app fell back to the
+classical detector. The fallback banner was then cleared as soon as the
+camera started, so nothing on screen said so.
+
+Fixed in 3.3.0:
+
+* `scripts/vendor-ort.mjs` (run by `npm install`) copies the runtime into
+  `public/ort/`, and the detector always loads it from there — the same path
+  in dev, preview, Vercel and the Capacitor app.
+* If the model still cannot load, a **persistent warning box** stays in the
+  Tooth-detection panel (it is not cleared by other messages).
+
+If you pulled the code without reinstalling, run `npm run vendor:ort` once.
+
 ## 39. Step 3 v2 known limitations
 
 * **Not 100 % and not medical-grade.** The numbers in §32 are the measured
@@ -1042,6 +1097,8 @@ metrics to report for each.
   (visual annotation of a 480×864 phone clip, one person). Treat it as
   indicative; re-annotate with `eval.html` and report the test-plan recordings.
   The EasyPortrait and DentalAI results use third-party labels.
+* **Low-light results use simulated darkening** of real test images (§32b);
+  no raw low-light recording with ground truth exists yet.
 * **Instance supervision comes from clinical intraoral photos** (DentalAI).
   The selfie-domain data (EasyPortrait) has only an all-teeth mask, so tooth
   separation in selfies is learned by transfer. Errors concentrate on lower

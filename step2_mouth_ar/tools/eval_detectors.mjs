@@ -111,6 +111,7 @@ async function makeDetectors() {
       const model = args.model ?? path.resolve('public/models/tooth_seg.onnx');
       const det = new LearnedToothDetector({ modelUrl: model });
       await det.init();
+      if (args.decode) det.setParams(JSON.parse(args.decode));   // e.g. '{"autoGain":true}
       out.push({ name, W: det.inputWidth, H: det.inputHeight, det, radius: undefined, async: true });
     } else {
       throw new Error(`unknown detector ${name}`);

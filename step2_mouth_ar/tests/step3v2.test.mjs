@@ -276,3 +276,33 @@ test('a stale async inference is discarded after reset / detector switch', async
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(pipe._pending, null, 'result from before the reset must be dropped');
 });
+
+test('a merged band of teeth is re-split from weak centre peaks', () => {
+  // 5 teeth wide band, boundaries present but centre peaks weak (0.15 < ctrThr)
+  // except the first; plus two normal isolated teeth so a "typical" width exists.
+  const W = 120, H = 40, n = W * H;
+  const teeth = new Float32Array(n), center = new Float32Array(n), boundary = new Float32Array(n);
+  const blob = (xa, xb, peak) => {
+    for (let y = 10; y < 30; y++) for (let x = xa; x < xb; x++) teeth[y * W + x] = 0.9;
+    const cx = (xa + xb) / 2 - 0.5;
+    for (let y = 0; y < H; y++) for (let x = xa; x < xb; x++) {
+      center[y * W + x] = Math.max(center[y * W + x], peak * Math.exp(-((x - cx) ** 2 + (y - 19.5) ** 2) / 8));
+    }
+  };
+  blob(2, 12, 0.9); blob(16, 26, 0.9);                     // two separate normal teeth
+  for (let k = 0; k < 5; k++) blob(30 + k * 10, 40 + k * 10, k === 0 ? 0.9 : 0.15);
+  for (let k = 1; k < 5; k++) for (let y = 10; y < 30; y++) boundary[y * W + 30 + k * 10] = 0.5;
+  const merged = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10 });
+  const split = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10, splitWide: true });
+  assert.equal(merged.instances.length, 3, 'without re-splitting the band is one tooth');
+  assert.equal(split.instances.length, 7, 'with re-splitting every tooth is separate');
+});
+
+test('re-splitting never invents teeth without centre evidence', () => {
+  const W = 80, H = 30, n = W * H;
+  const teeth = new Float32Array(n), center = new Float32Array(n), boundary = new Float32Array(n);
+  for (let y = 8; y < 22; y++) for (let x = 5; x < 75; x++) teeth[y * W + x] = 0.9;
+  center[15 * W + 10] = 0.9;
+  const { instances } = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10, splitWide: true });
+  assert.equal(instances.length, 1);
+});

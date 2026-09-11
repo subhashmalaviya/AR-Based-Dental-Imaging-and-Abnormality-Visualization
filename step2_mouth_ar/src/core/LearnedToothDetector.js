@@ -34,7 +34,10 @@ async function loadOrt(wasmBase) {
     const load = IS_NODE ? import(/* @vite-ignore */ 'onnxruntime-web') : import('onnxruntime-web/wasm');
     ortPromise = load.then((m) => {
       const ort = m.default ?? m;
-      if (wasmBase) ort.env.wasm.wasmPaths = wasmBase;
+      // Browser: always load the runtime from the vendored, same-origin copy
+      // in public/ort (scripts/vendor-ort.mjs), as an absolute URL.
+      const base = wasmBase ?? (IS_NODE ? null : new URL('ort/', window.location.href).href);
+      if (base) ort.env.wasm.wasmPaths = base;
       const iso = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
       const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2;
       // Threads need cross-origin isolation (SharedArrayBuffer); without it,
@@ -133,12 +136,27 @@ export class LearnedToothDetector extends ToothDetector {
     const buf = new Float32Array(3 * n);
     const d = image.data;
     const [m0, m1, m2] = this.mean, [s0, s1, s2] = this.std;
+    const g = this.params.autoGain ? this._gain(d, n) : 1;
+    this.lastGain = g;
     for (let i = 0; i < n; i++) {
-      buf[i] = (d[i * 4] / 255 - m0) / s0;
-      buf[n + i] = (d[i * 4 + 1] / 255 - m1) / s1;
-      buf[2 * n + i] = (d[i * 4 + 2] / 255 - m2) / s2;
+      buf[i] = (Math.min(1, (d[i * 4] / 255) * g) - m0) / s0;
+      buf[n + i] = (Math.min(1, (d[i * 4 + 1] / 255) * g) - m1) / s1;
+      buf[2 * n + i] = (Math.min(1, (d[i * 4 + 2] / 255) * g) - m2) / s2;
     }
     return new this.ort.Tensor('float32', buf, [1, 3, H, W]);
+  }
+
+  /**
+   * Auto-gain for dim mouths: scale so the ROI's 97th-percentile brightness
+   * reaches ~0.8 (enamel is the brightest thing in a mouth), capped at 3x.
+   * Never darkens. Cheap: one histogram over 19k pixels.
+   */
+  _gain(d, n) {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < n; i++) hist[Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2])]++;
+    let acc = 0, p97 = 255;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= 0.97 * n) { p97 = v; break; } }
+    return Math.min(3, Math.max(1, (0.8 * 255) / Math.max(p97, 1)));
   }
 
   /** Raw probability maps for one ROI (exposed for the debug view / tests). */

@@ -31,7 +31,7 @@ import { SessionRecorder, saveBlob } from './core/SessionRecorder.js';
 import { MetadataLogger } from './core/MetadataLogger.js';
 import { formatDuration } from './ui/HUD.js';
 
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
 
 const video = document.getElementById('camera');
@@ -400,6 +400,8 @@ async function selectDetector(key) {
     if (key === 'learned') hud.setBanner('Loading tooth model…', 'info');
     const det = await teeth.setDetector(key, key === 'learned' ? { modelUrl: MODEL_URL } : {});
     hud.setModelInfo(describeDetector(det));
+    hud.setDetectorWarning(key === 'classical'
+      ? 'Classical v1 baseline selected — detects far fewer teeth than the learned model.' : null);
     hud.setBanner('', 'info');
   } catch (err) {
     console.warn('[main] could not load detector', key, err);
@@ -407,8 +409,10 @@ async function selectDetector(key) {
       await teeth.setDetector('classical');
       if (sel) sel.value = 'classical';
       hud.setModelInfo(describeDetector(teeth.detector));
-      hud.setBanner(`Learned tooth model unavailable (${err.message}). `
-        + 'Falling back to the classical detector.', 'error');
+      const msg = `Learned tooth model could not load (${err.message}). `
+        + 'Using the classical fallback, which misses most upper and side teeth.';
+      hud.setBanner(msg, 'error');
+      hud.setDetectorWarning(`⚠ FALLBACK ACTIVE — ${msg}`);
     }
   }
 }

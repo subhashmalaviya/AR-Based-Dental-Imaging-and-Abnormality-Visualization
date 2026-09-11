@@ -158,3 +158,6 @@ body {
 }
 @keyframes recblink { to { visibility: hidden; } }
 .hint a { color: var(--accent); }
+
+.warn-box { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: rgba(245,158,11,.14); color: #fcd34d; border: 1px solid rgba(245,158,11,.4); }
