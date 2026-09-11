@@ -26,27 +26,52 @@ import { assignJaws, decodeToothMaps } from './toothDecode.js';
 const IS_NODE = typeof process !== 'undefined' && !!process.versions?.node
   && typeof window === 'undefined';
 
-let ortPromise = null;
-async function loadOrt(wasmBase) {
-  if (!ortPromise) {
+const IS_MOBILE = typeof navigator !== 'undefined'
+  && (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
+    || navigator.userAgentData?.mobile === true);
+
+/**
+ * Which runtime configurations to try, in order.
+ *
+ *   wasm   WebAssembly; multithreaded where the page is cross-origin isolated
+ *          on a desktop. Phones get ONE thread: multithreaded WASM allocates a
+ *          large SharedArrayBuffer and spawns workers, which phone browsers
+ *          can refuse — and after a failed first init ONNX Runtime cannot be
+ *          re-initialised in the same page, so it is not worth risking.
+ *   webgl  GPU backend, a separate runtime — the fallback when WebAssembly
+ *          cannot start at all (old iOS without WASM SIMD, blocked memory).
+ *
+ * `?ort=wasm|wasm1|webgl` in the page URL forces one, for debugging on a
+ * device (e.g. https://…/?ort=webgl).
+ */
+export function backendPlan() {
+  const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ort') : null;
+  if (q === 'webgl' || q === 'wasm' || q === 'wasm1') return [q];
+  return ['wasm', 'webgl'];
+}
+
+const ortModules = new Map();
+function loadOrt(plan, wasmBase) {
+  const key = plan === 'webgl' ? 'webgl' : 'wasm';
+  if (!ortModules.has(key)) {
     // In Node (evaluation harness) the package's own Node build is used; in
-    // the browser, the WebAssembly-only build (no WebGL/WebGPU code shipped).
-    const load = IS_NODE ? import(/* @vite-ignore */ 'onnxruntime-web') : import('onnxruntime-web/wasm');
-    ortPromise = load.then((m) => {
-      const ort = m.default ?? m;
+    // the browser, backend-specific builds (no unused backends shipped).
+    const load = IS_NODE ? import(/* @vite-ignore */ 'onnxruntime-web')
+      : key === 'webgl' ? import('onnxruntime-web/webgl') : import('onnxruntime-web/wasm');
+    ortModules.set(key, load.then((m) => m.default ?? m));
+  }
+  return ortModules.get(key).then((ort) => {
+    if (key === 'wasm') {
       // Browser: always load the runtime from the vendored, same-origin copy
       // in public/ort (scripts/vendor-ort.mjs), as an absolute URL.
       const base = wasmBase ?? (IS_NODE ? null : new URL('ort/', window.location.href).href);
       if (base) ort.env.wasm.wasmPaths = base;
       const iso = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
       const cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2;
-      // Threads need cross-origin isolation (SharedArrayBuffer); without it,
-      // one thread is the only option and is still fast enough at 160x120.
-      ort.env.wasm.numThreads = iso ? Math.min(4, cores) : 1;
-      return ort;
-    });
-  }
-  return ortPromise;
+      ort.env.wasm.numThreads = (plan === 'wasm1' || IS_MOBILE || !iso) ? 1 : Math.min(4, cores);
+    }
+    return ort;
+  });
 }
 
 // Node-only module, loaded only by the evaluation harness / tests. Kept out
@@ -124,15 +149,32 @@ export class LearnedToothDetector extends ToothDetector {
       this.std = this.info.input?.std ?? this.std;
       Object.assign(this.params, this.info.decode ?? {});
     }
-    const ort = await loadOrt(this.wasmBase);
-    this.ort = ort;
-    this.session = await ort.InferenceSession.create(await readModel(this.modelUrl), {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    });
-    this.inputName = this.session.inputNames[0];
-    this.outputName = this.session.outputNames[0];
-    this.ready = true;
+    const bytes = await readModel(this.modelUrl);
+    this.loadAttempts = [];
+    for (const plan of IS_NODE ? ['wasm'] : backendPlan()) {
+      try {
+        const ort = await loadOrt(plan, this.wasmBase);
+        const session = await ort.InferenceSession.create(bytes, {
+          executionProviders: [plan === 'webgl' ? 'webgl' : 'wasm'],
+          graphOptimizationLevel: 'all',
+        });
+        this.ort = ort;
+        this.session = session;
+        this.inputName = session.inputNames[0];
+        this.outputName = session.outputNames[0];
+        // Smoke test: one real inference, so a backend that loads but cannot
+        // run this graph is rejected here, not silently at the first frame.
+        const W = this.inputWidth, H = this.inputHeight;
+        await this.predictMaps({ data: new Uint8ClampedArray(W * H * 4).fill(128), width: W, height: H });
+        this.backend = plan === 'webgl' ? 'webgl' : `wasm×${ort.env.wasm.numThreads}`;
+        this.ready = true;
+        return;
+      } catch (e) {
+        this.loadAttempts.push(`${plan}: ${e?.message ?? e}`);
+        this.session = null;
+      }
+    }
+    throw new Error(this.loadAttempts.join(' | ') || 'no ONNX Runtime backend available');
   }
 
   _tensor(image) {

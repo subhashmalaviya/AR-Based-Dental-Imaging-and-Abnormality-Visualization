@@ -31,7 +31,7 @@ import { SessionRecorder, saveBlob } from './core/SessionRecorder.js';
 import { MetadataLogger } from './core/MetadataLogger.js';
 import { formatDuration } from './ui/HUD.js';
 
-const APP_VERSION = '3.4.0';
+const APP_VERSION = '3.5.0';
 const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
 
 const video = document.getElementById('camera');
@@ -391,7 +391,7 @@ function describeDetector(det) {
   const ds = (i.training?.datasets ?? []).map((d) => `${d.name} (${d.license})`).join(' + ');
   const v = i.validation ?? {};
   return `${i.name} v${i.version} — ${Math.round(i.parameters / 1000)}k parameters, `
-    + `${i.input.width}x${i.input.height} input, runs on-device (ONNX Runtime Web). `
+    + `${i.input.width}x${i.input.height} input, runs on-device (ONNX Runtime Web, backend ${det.backend ?? '?'}). `
     + `Trained on ${ds}. Held-out validation: teeth-mask IoU ${fmt(v.ep_teeth_iou)} on selfie `
     + `images, ${fmt(v.da_teeth_iou)} on intraoral photos; tooth-centre F1 ${fmt(v.da_center_f1)}.`;
 }
@@ -402,8 +402,10 @@ async function selectDetector(key) {
     if (key === 'learned') hud.setBanner('Loading tooth model…', 'info');
     const det = await teeth.setDetector(key, key === 'learned' ? { modelUrl: MODEL_URL } : {});
     hud.setModelInfo(describeDetector(det));
+    state.fallbackReason = null;
     hud.setDetectorWarning(key === 'classical'
       ? 'Classical v1 baseline selected — detects far fewer teeth than the learned model.' : null);
+    document.getElementById('retryModelBtn').hidden = true;
     hud.setBanner('', 'info');
   } catch (err) {
     console.warn('[main] could not load detector', key, err);
@@ -415,10 +417,23 @@ async function selectDetector(key) {
         + 'Using the classical fallback, which misses most upper and side teeth.';
       hud.setBanner(msg, 'error');
       hud.setDetectorWarning(`⚠ FALLBACK ACTIVE — ${msg}`);
+      state.fallbackReason = err.message;
+      document.getElementById('retryModelBtn').hidden = false;
     }
   }
 }
 bind('detectorSelect', (e) => selectDetector(e.target.value));
+document.getElementById('retryModelBtn')?.addEventListener('click', () => {
+  const sel = document.getElementById('detectorSelect');
+  if (sel) sel.value = 'learned';
+  selectDetector('learned');
+});
+
+/** What the burned-in line and the metadata say about the detector. */
+function detectorLabel() {
+  if (teeth.detector.isLearnedModel) return `learned (${teeth.detector.backend ?? '?'})`;
+  return state.fallbackReason ? 'CLASSICAL FALLBACK' : 'classical';
+}
 
 // ------------------------------------------------------------- recording
 const recBtn = document.getElementById('recordBtn');
@@ -436,7 +451,7 @@ function drawBurnIn(c, w, h, fps, stats) {
     `FPS ${fps.toFixed(1)}   teeth ${stats?.count ?? 0} (U${stats?.upper ?? 0}/L${stats?.lower ?? 0})`
       + `   conf ${stats?.count ? stats.avgConfidence.toFixed(2) : '—'}`,
     `tracking ${stats?.stabilityLabel ?? '—'}${stats?.stability != null ? ` ${(stats.stability * 100).toFixed(0)}%` : ''}`
-      + `   detector ${teeth.detectorKey}   rec ${formatDuration(recorder.elapsedMs)}`,
+      + `   detector ${detectorLabel()}   rec ${formatDuration(recorder.elapsedMs)}`,
   ];
   const fs = Math.max(11, Math.round(h / 48));
   c.save();
@@ -493,7 +508,12 @@ async function toggleRecording() {
         timebase: 't_ms is milliseconds since the MediaRecorder start event',
         detector: {
           key: teeth.detectorKey, name: teeth.detector.name, learned: teeth.detector.isLearnedModel,
-          model: i ? { name: i.name, version: i.version, created: i.created } : null,
+          label: detectorLabel(),
+          model: i ? { name: i.name, version: i.version, created: i.created, roi: i.roi } : null,
+          backend: teeth.detector.backend ?? null,
+          loadAttempts: teeth.detector.loadAttempts ?? null,
+          fallbackReason: state.fallbackReason ?? null,
+          crossOriginIsolated: typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : null,
         },
         camera: camera.getSettings(),
         userAgent: navigator.userAgent,
