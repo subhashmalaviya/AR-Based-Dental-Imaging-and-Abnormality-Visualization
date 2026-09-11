@@ -1,0 +1,63 @@
+{
+  "schema": "dental-ar-gt/1",
+  "video": "mouthtestvideo.mp4",
+  "space": "rectified mouth ROI, 192x144 px (tools/train/make_video_rois.py, same geometry as MouthROI.js)",
+  "protocol": [
+    "One point per visible tooth at the crown centre, with jaw (upper/lower).",
+    "partial=true: tooth visibly present but cut by the lips/ROI edge, in deep shadow, or its boundaries are not clearly resolvable.",
+    "ignore: [x,y,w,h] regions where teeth are visible but individual teeth cannot be told apart (e.g. a thin upper band in a wide-open mouth). Detections there are neither counted right nor wrong.",
+    "Frames where no individual tooth can be resolved (motion blur) are not annotated at all."
+  ],
+  "caveat": "PROVISIONAL ground truth made by visual inspection of CLAHE-enhanced crops from a 480x864 phone video. Lower-incisor boundaries in clenched frames are the least certain. Not verified by a dentist; re-annotate with eval.html before relying on the numbers.",
+  "frames": {
+    "mouthtestvideo_f0030": { "teeth": [
+      {"point":[37,48],"jaw":"upper","partial":true}, {"point":[55,44],"jaw":"upper"}, {"point":[79,42],"jaw":"upper"},
+      {"point":[105,42],"jaw":"upper"}, {"point":[128,44],"jaw":"upper"}, {"point":[144,48],"jaw":"upper","partial":true},
+      {"point":[41,88],"jaw":"lower","partial":true}, {"point":[56,88],"jaw":"lower"}, {"point":[70,88],"jaw":"lower"},
+      {"point":[83,88],"jaw":"lower"}, {"point":[97,88],"jaw":"lower"}, {"point":[110,88],"jaw":"lower"},
+      {"point":[123,88],"jaw":"lower"}, {"point":[136,88],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0060": { "teeth": [
+      {"point":[32,52],"jaw":"upper","partial":true}, {"point":[44,50],"jaw":"upper","partial":true}, {"point":[60,44],"jaw":"upper"},
+      {"point":[83,40],"jaw":"upper"}, {"point":[109,40],"jaw":"upper"}, {"point":[133,44],"jaw":"upper"},
+      {"point":[150,50],"jaw":"upper","partial":true},
+      {"point":[48,86],"jaw":"lower","partial":true}, {"point":[64,86],"jaw":"lower"}, {"point":[81,86],"jaw":"lower"},
+      {"point":[99,86],"jaw":"lower"}, {"point":[111,86],"jaw":"lower"}, {"point":[126,86],"jaw":"lower"},
+      {"point":[140,86],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0090": { "teeth": [
+      {"point":[37,50],"jaw":"upper","partial":true}, {"point":[55,44],"jaw":"upper"}, {"point":[79,40],"jaw":"upper"},
+      {"point":[105,40],"jaw":"upper"}, {"point":[130,44],"jaw":"upper"}, {"point":[147,50],"jaw":"upper","partial":true},
+      {"point":[43,80],"jaw":"lower","partial":true}, {"point":[62,80],"jaw":"lower"}, {"point":[80,80],"jaw":"lower"},
+      {"point":[97,80],"jaw":"lower"}, {"point":[113,80],"jaw":"lower"}, {"point":[127,80],"jaw":"lower"},
+      {"point":[141,80],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0110": { "teeth": [
+      {"point":[45,52],"jaw":"upper","partial":true}, {"point":[63,44],"jaw":"upper"}, {"point":[86,40],"jaw":"upper"},
+      {"point":[110,40],"jaw":"upper"}, {"point":[135,44],"jaw":"upper"}, {"point":[151,52],"jaw":"upper","partial":true},
+      {"point":[44,88],"jaw":"lower","partial":true}, {"point":[61,88],"jaw":"lower"}, {"point":[78,88],"jaw":"lower"},
+      {"point":[95,88],"jaw":"lower"}, {"point":[110,88],"jaw":"lower"}, {"point":[126,88],"jaw":"lower"},
+      {"point":[140,88],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0150": { "ignore": [[48,14,108,26]], "teeth": [
+      {"point":[46,104],"jaw":"lower","partial":true}, {"point":[58,112],"jaw":"lower"}, {"point":[70,118],"jaw":"lower"},
+      {"point":[83,121],"jaw":"lower"}, {"point":[95,122],"jaw":"lower"}, {"point":[107,121],"jaw":"lower"},
+      {"point":[120,117],"jaw":"lower"}, {"point":[135,108],"jaw":"lower"}, {"point":[145,101],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0180": { "ignore": [[44,8,84,24]], "teeth": [
+      {"point":[46,104],"jaw":"lower","partial":true}, {"point":[60,110],"jaw":"lower"}, {"point":[73,116],"jaw":"lower"},
+      {"point":[87,118],"jaw":"lower"}, {"point":[102,118],"jaw":"lower"}, {"point":[116,116],"jaw":"lower"},
+      {"point":[129,112],"jaw":"lower"}, {"point":[141,104],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0300": { "ignore": [[0,0,64,66],[112,0,64,66]], "teeth": [
+      {"point":[44,90],"jaw":"lower","partial":true}, {"point":[56,92],"jaw":"lower"}, {"point":[72,92],"jaw":"lower"},
+      {"point":[88,94],"jaw":"lower"}, {"point":[104,94],"jaw":"lower"}, {"point":[120,92],"jaw":"lower"},
+      {"point":[134,90],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0520": { "teeth": [
+      {"point":[43,44],"jaw":"upper","partial":true}, {"point":[63,40],"jaw":"upper"}, {"point":[88,36],"jaw":"upper"},
+      {"point":[115,36],"jaw":"upper"}, {"point":[137,40],"jaw":"upper"}, {"point":[152,44],"jaw":"upper","partial":true},
+      {"point":[47,88],"jaw":"lower","partial":true}, {"point":[62,88],"jaw":"lower"}, {"point":[78,88],"jaw":"lower"},
+      {"point":[93,88],"jaw":"lower"}, {"point":[108,88],"jaw":"lower"}, {"point":[123,88],"jaw":"lower"},
+      {"point":[137,88],"jaw":"lower","partial":true} ] },
+    "mouthtestvideo_f0540": { "teeth": [
+      {"point":[72,40],"jaw":"upper","partial":true}, {"point":[88,40],"jaw":"upper"}, {"point":[112,40],"jaw":"upper"},
+      {"point":[128,40],"jaw":"upper","partial":true},
+      {"point":[44,90],"jaw":"lower","partial":true}, {"point":[60,98],"jaw":"lower"}, {"point":[78,106],"jaw":"lower"},
+      {"point":[93,108],"jaw":"lower"}, {"point":[106,108],"jaw":"lower"}, {"point":[119,105],"jaw":"lower"},
+      {"point":[134,95],"jaw":"lower"}, {"point":[146,88],"jaw":"lower","partial":true} ] }
+  }
+}

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1117" />
+  <link rel="icon" href="data:," />
+  <title>Dental AR — Evaluation &amp; Ground Truth</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    .ev { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; padding: 14px; }
+    @media (max-width: 1000px) { .ev { grid-template-columns: 1fr; } }
+    .ev-stage { background: #000; border-radius: 10px; overflow: hidden; position: relative; }
+    #evCanvas { width: 100%; display: block; cursor: crosshair; touch-action: none; }
+    .ev-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+    .ev-bar input[type=range] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+    .ev-files label { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+    .ev-files input { width: 100%; font-size: 12px; color: var(--text); }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .seg button { background: var(--panel-2, #1b2230); color: var(--text); border: 0; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+    .seg button.on { background: var(--accent); color: #04222f; }
+    .kbd { font: 11px ui-monospace, Menlo, monospace; color: var(--muted); }
+    .metric-na { color: var(--muted); font-style: italic; }
+    table.ev-t { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.ev-t td { padding: 3px 0; border-bottom: 1px solid var(--line); }
+    table.ev-t td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__title">Dental AR — Evaluation</span>
+      <span class="brand__sub">Annotate ground truth on recorded frames and measure detection accuracy. Runs entirely in this browser.</span>
+    </div>
+    <div class="stats"><div class="stat"><span class="stat__label">Frame</span><span id="evFrameLabel" class="stat__value">—</span></div></div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="ev">
+    <div>
+      <div class="ev-stage"><canvas id="evCanvas" width="960" height="720"></canvas></div>
+      <div class="ev-bar">
+        <button id="evPrev" class="btn">&#9664;</button>
+        <input type="range" id="evSlider" min="0" max="0" value="0" />
+        <button id="evNext" class="btn">&#9654;</button>
+        <button id="evNextMouth" class="btn">Next frame with mouth</button>
+      </div>
+      <div class="ev-bar">
+        <span class="seg" id="evMode">
+          <button data-mode="point" class="on">Tooth point</button>
+          <button data-mode="box">Tooth box</button>
+          <button data-mode="ignore">Ignore region</button>
+        </span>
+        <span class="seg" id="evJaw">
+          <button data-jaw="upper" class="on">Upper</button>
+          <button data-jaw="lower">Lower</button>
+        </span>
+        <label class="row" style="padding:0"><input type="checkbox" id="evPartial" /><span>partial</span></label>
+        <label class="row" style="padding:0"><input type="checkbox" id="evZoom" checked /><span>zoom to mouth</span></label>
+        <label class="row" style="padding:0"><input type="checkbox" id="evShowDets" checked /><span>show detections</span></label>
+      </div>
+      <p class="kbd">Click = add tooth centre · drag = box/ignore region · right-click / Alt-click = delete nearest ·
+        U / L = jaw · P = partial · Z = zoom · ← → = frame · Backspace = undo</p>
+    </div>
+
+    <aside class="panel">
+      <section class="panel__block ev-files">
+        <h2 class="panel__heading">Load</h2>
+        <label>Recording (video .webm / .mp4, or a captured .png)</label>
+        <input type="file" id="evVideoFile" accept="video/*,image/*" />
+        <label>Metadata (.json saved with the recording)</label>
+        <input type="file" id="evMetaFile" accept="application/json,.json" />
+        <label>Existing ground truth (optional, to continue)</label>
+        <input type="file" id="evGtFile" accept="application/json,.json" />
+        <label>Time offset video ↔ metadata (ms)</label>
+        <input type="number" id="evOffset" value="0" step="10" />
+        <p class="hint" id="evLoadInfo">Use a <strong>raw</strong> recording for ground truth — annotated videos have
+          the overlay burned into the pixels.</p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">This frame</h2>
+        <table class="ev-t" id="evFrameTable"></table>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Accuracy over annotated frames</h2>
+        <label class="row"><input type="checkbox" id="evClearOnly" /><span>clear teeth only (partial teeth ignored)</span></label>
+        <table class="ev-t" id="evAggTable"></table>
+        <p class="hint">Computed only from the frames you annotated. With no annotations nothing is shown — no default or estimated numbers.</p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Recording statistics</h2>
+        <table class="ev-t" id="evRecTable"></table>
+        <p class="hint">From the per-frame metadata: frame rate, detection latency and tooth-ID continuity.</p>
+      </section>
+
+      <section class="panel__block">
+        <div class="buttons buttons--wrap">
+          <button id="evExportGt" class="btn btn--primary">Export ground truth</button>
+          <button id="evExportReport" class="btn">Export report</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+  <script type="module" src="/src/eval/evalApp.js"></script>
+</body>
+</html>

@@ -4,26 +4,28 @@
  * ===========================================================================
  * WHY THIS INTERFACE EXISTS
  * ===========================================================================
- * No suitable pretrained tooth model exists for this input. The tooth
- * segmentation models that are publicly available (railNet, DENTEX and
- * similar) are trained on **CBCT volumes and panoramic radiographs**, not on
- * RGB photographs of a mouth from a phone camera, and none ship in a form that
- * runs in a browser. Running an X-ray model on a selfie is a domain mismatch
- * that produces noise, so this project does not do that.
+ * Two implementations are registered:
  *
- * The shipped detector is therefore a **classical computer-vision segmenter**
- * (ToothSegmenter.js) that measures real pixels from the live camera. It is a
- * genuine CV method — no hardcoded coordinates, no predefined rectangles, no
- * canned results — but it is explicitly *not* a neural network, and the UI
- * labels it accordingly so nothing here is passed off as an AI result.
+ *   'learned'    LearnedToothDetector.js — a CNN trained on openly licensed
+ *                tooth data (DentalAI per-tooth polygons + EasyPortrait selfie
+ *                teeth masks), run on-device with ONNX Runtime Web. Default
+ *                when its model file is present.
+ *   'classical'  ToothSegmenter.js — the original hand-designed method
+ *                (whiteness threshold + interdental split). Not a neural
+ *                network; kept as a fallback and as the measured baseline.
  *
- * This interface is the seam: implement `detect()` and a learned model drops
- * in without touching the ROI, tracking, smoothing or rendering layers.
+ * Most published tooth models are trained on CBCT or panoramic X-rays and are
+ * useless on a phone camera image; the one directly relevant RGB model found
+ * (SegmentAnyTooth) releases weights only under a signed non-commercial
+ * agreement. This interface is the seam: a model obtained that way, or a
+ * custom-trained one, drops in by implementing detect()/detectAsync().
  * ===========================================================================
  *
  * Contract
  * --------
- * detect(roiImageData, apertureMask, roi, ctx) -> ToothDetection[]
+ * detect(roiImageData, apertureMask, roi) -> ToothDetection[]          (sync)
+ * detectAsync(roiImageData, apertureMask, roi) -> Promise<ToothDetection[]>
+ *   (learned models; `isAsync` is true and the pipeline never blocks on it)
  *
  * Detections are returned in **mouth-local coordinates** (the Step-2 anchor
  * contract: 1.0 = mouth width, +X towards the subject's right corner, +Y
@@ -36,8 +38,10 @@
  * @property {{u:number,v:number,w:number,h:number}} box  bbox, mouth-local
  * @property {Array<{u:number,v:number}>} contour         outline, mouth-local
  * @property {number} area        contour area in mouth-local units^2
- * @property {number} confidence  0..1, see ToothSegmenter for its definition
+ * @property {number} confidence  0..1 (see each detector for its definition)
  * @property {'upper'|'lower'} arch
+ * @property {'full'|'partial'} [visibility]
+ * @property {object} [mask]       instance mask reference (learned detector)
  */
 
 export class ToothDetector {
@@ -74,8 +78,8 @@ export function listDetectors() {
   return [...registry.entries()].map(([key, { meta }]) => ({ key, ...meta }));
 }
 
-export function createDetector(key) {
+export function createDetector(key, opts = {}) {
   const entry = registry.get(key);
   if (!entry) throw new Error(`unknown tooth detector: ${key}`);
-  return entry.factory();
+  return entry.factory(opts);
 }

@@ -15,7 +15,9 @@
  * affine under the anchor's weak-perspective model), so the resample is done by
  * the compositor rather than a per-pixel JS loop.
  */
-import { LIPS_INNER_RING } from '../landmarks/FaceLandmarkIndices.js';
+import {
+  LIPS_INNER_RING, LOWER_LIP_INNER, UPPER_LIP_INNER,
+} from '../landmarks/FaceLandmarkIndices.js';
 
 export const ROI_W = 192;
 export const ROI_H = 144;
@@ -26,10 +28,10 @@ export class MouthROI {
     this.height = height;
     this.padding = padding;
 
-    this.canvas = typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(width, height)
-      : Object.assign(document.createElement('canvas'), { width, height });
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    // Canvas created lazily on first extract(), so the geometry (bounds,
+    // snapshot, aperture) also works headless — e.g. in the Node tests.
+    this.canvas = null;
+    this.ctx = null;
 
     this.bounds = null;   // {u0,u1,v0,v1} in mouth-local units
     this.pose = null;
@@ -48,6 +50,7 @@ export class MouthROI {
 
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     const local = [];
+    let upperV = null, lowerV = null;
     for (const i of LIPS_INNER_RING) {
       const p = landmarks[i];
       const dx = p.x * frameW - origin.x;
@@ -56,6 +59,8 @@ export class MouthROI {
       const u = (dx * basis.x.x + dy * basis.x.y + dz * basis.x.z) / scale;
       const v = (dx * basis.y.x + dy * basis.y.y + dz * basis.y.z) / scale;
       local.push({ u, v });
+      if (i === UPPER_LIP_INNER) upperV = v;
+      if (i === LOWER_LIP_INNER) lowerV = v;
       if (u < u0) u0 = u; if (u > u1) u1 = u;
       if (v < v0) v0 = v; if (v > v1) v1 = v;
     }
@@ -68,7 +73,33 @@ export class MouthROI {
     this.bounds = { u0: u0 - du, u1: u1 + du, v0: v0 - dv, v1: v1 + dv };
     this.localRing = local;
     this.pose = pose;
+    // Inner-lip midpoints: the tracker measures upper teeth from the upper lip
+    // and lower teeth from the lower lip, cancelling jaw opening.
+    this.jawRef = { upper: upperV ?? v0, lower: lowerV ?? v1 };
     return this.bounds;
+  }
+
+  /**
+   * Frozen copy of the geometry, for an asynchronous detector: its result must
+   * be mapped with the bounds of the frame it was computed from, not the
+   * bounds of whatever frame is current when inference finishes.
+   */
+  snapshot() {
+    const b = { ...this.bounds };
+    const W = this.width, H = this.height;
+    return {
+      width: W, height: H, bounds: b,
+      localRing: this.localRing?.slice() ?? null,
+      jawRef: this.jawRef ? { ...this.jawRef } : null,
+      roiToLocal: (px, py) => ({
+        u: b.u0 + (px / W) * (b.u1 - b.u0),
+        v: b.v0 + (py / H) * (b.v1 - b.v0),
+      }),
+      localToRoi: (u, v) => ({
+        x: ((u - b.u0) / (b.u1 - b.u0)) * W,
+        y: ((v - b.v0) / (b.v1 - b.v0)) * H,
+      }),
+    };
   }
 
   /** ROI-pixel coords -> mouth-local coords. */
@@ -118,6 +149,12 @@ export class MouthROI {
     const ia = D / det, ib = -B / det, ic = -C / det, id = A / det;
     const ie = (C * F - D * E) / det, iff = (B * E - A * F) / det;
 
+    if (!this.ctx) {
+      this.canvas = typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(this.width, this.height)
+        : Object.assign(document.createElement('canvas'), { width: this.width, height: this.height });
+      this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    }
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.width, this.height);
@@ -133,35 +170,60 @@ export class MouthROI {
 
   /** Binary aperture mask (Uint8Array, 0/255) of the inner lip ring, eroded. */
   apertureMask() {
-    const { width: W, height: H } = this;
-    const mask = new Uint8Array(W * H);
-    if (!this.localRing) return mask;
+    if (!this.localRing || !this.bounds) return new Uint8Array(this.width * this.height);
+    return buildApertureMask(this.localRing, this.bounds, this.width, this.height);
+  }
+}
 
-    const poly = this.localRing.map(({ u, v }) => this.localToRoi(u, v));
+/**
+ * Erosion radius that pulls the aperture in off the lips.
+ *
+ * The inner-ring landmarks sit ON the lip edge, and a lit lower lip is bright
+ * enough to be mistaken for enamel, so the polygon is shrunk slightly. This
+ * was ported wrongly at first: the Python prototype the segmenter was tuned on
+ * used a 7x7 kernel (radius 3 at 144 px), but the JS port treated that number
+ * as a *radius* and eroded with 13x13 — shaving ~6 px off both edges, which
+ * clips upper incisors that touch the upper lip. Radius ~2.2% of ROI height
+ * restores the tuned behaviour; tests/eval measures the difference.
+ */
+export function apertureErosionRadius(H) {
+  return Math.max(1, Math.round(H * 0.022));
+}
 
-    // even-odd scanline fill
-    for (let y = 0; y < H; y++) {
-      const yc = y + 0.5;
-      const xs = [];
-      for (let i = 0; i < poly.length; i++) {
-        const p = poly[i], q = poly[(i + 1) % poly.length];
-        if ((p.y <= yc && q.y > yc) || (q.y <= yc && p.y > yc)) {
-          xs.push(p.x + ((yc - p.y) / (q.y - p.y)) * (q.x - p.x));
-        }
-      }
-      xs.sort((a, c) => a - c);
-      for (let i = 0; i + 1 < xs.length; i += 2) {
-        const a = Math.max(0, Math.ceil(xs[i]));
-        const b = Math.min(W - 1, Math.floor(xs[i + 1]));
-        for (let x = a; x <= b; x++) mask[y * W + x] = 255;
+/**
+ * Pure-function aperture mask, usable without a canvas (the Node evaluation
+ * harness calls this directly).
+ * @param {Array<{u:number,v:number}>} localRing inner lip ring, mouth-local
+ * @param {{u0,u1,v0,v1}} bounds ROI bounds, mouth-local
+ * @param {number} W @param {number} H ROI size in px
+ * @param {number} [radius] erosion radius (defaults to apertureErosionRadius)
+ */
+export function buildApertureMask(localRing, bounds, W, H, radius = apertureErosionRadius(H)) {
+  const mask = new Uint8Array(W * H);
+  const toRoi = ({ u, v }) => ({
+    x: ((u - bounds.u0) / (bounds.u1 - bounds.u0)) * W,
+    y: ((v - bounds.v0) / (bounds.v1 - bounds.v0)) * H,
+  });
+  const poly = localRing.map(toRoi);
+
+  // even-odd scanline fill
+  for (let y = 0; y < H; y++) {
+    const yc = y + 0.5;
+    const xs = [];
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      if ((p.y <= yc && q.y > yc) || (q.y <= yc && p.y > yc)) {
+        xs.push(p.x + ((yc - p.y) / (q.y - p.y)) * (q.x - p.x));
       }
     }
-
-    // Erode off the lips: the ring landmarks sit ON the lip edge, and a lit
-    // lower lip is bright enough to be mistaken for enamel otherwise.
-    const r = Math.max(2, Math.round(H * 0.045));
-    return erode(mask, W, H, r);
+    xs.sort((a, c) => a - c);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const a = Math.max(0, Math.ceil(xs[i] - 0.5));
+      const b = Math.min(W - 1, Math.floor(xs[i + 1] - 0.5));
+      for (let x = a; x <= b; x++) mask[y * W + x] = 255;
+    }
   }
+  return radius > 0 ? erode(mask, W, H, radius) : mask;
 }
 
 /** Square-kernel erosion via two separable min passes. */

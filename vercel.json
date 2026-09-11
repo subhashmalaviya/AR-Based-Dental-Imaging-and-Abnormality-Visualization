@@ -2,5 +2,20 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd step2_mouth_ar && npm install",
   "buildCommand": "cd step2_mouth_ar && npm run build",
-  "outputDirectory": "step2_mouth_ar/dist"
+  "outputDirectory": "step2_mouth_ar/dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    }
+  ]
 }

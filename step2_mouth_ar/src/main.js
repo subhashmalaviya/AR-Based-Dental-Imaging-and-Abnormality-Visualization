@@ -26,6 +26,13 @@ import { ToothPipeline } from './core/ToothPipeline.js';
 import { ToothOverlayRenderer } from './ui/ToothOverlayRenderer.js';
 import { DebugRenderer } from './ui/DebugRenderer.js';
 import { AR3DRenderer } from './ui/AR3DRenderer.js';
+// --- Step 3 v2: recording + metadata -----------------------------------------
+import { SessionRecorder, saveBlob } from './core/SessionRecorder.js';
+import { MetadataLogger } from './core/MetadataLogger.js';
+import { formatDuration } from './ui/HUD.js';
+
+const APP_VERSION = '3.2.0';
+const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
 
 const video = document.getElementById('camera');
 const canvas = document.getElementById('overlay');
@@ -48,11 +55,23 @@ const toothRenderer = new ToothOverlayRenderer(ctx);
 const debugRenderer = new DebugRenderer(ctx);
 const ar3d = new AR3DRenderer(ctx);
 
+// --- recording ------------------------------------------------------------
+const recorder = new SessionRecorder({
+  getCameraStream: () => camera.stream,
+  video,
+  overlay: canvas,
+  isMirrored: () => state.mirrored,
+});
+const metaLog = new MetadataLogger();
+let lastRecording = null;   // { result, doc } of the most recent recording
+
 const state = {
   running: false,
   showLandmarks: true,
   showMesh: false,
-  showOverlay: true,
+  // Step-2 logo quad: off by default — it sits exactly on the teeth this
+  // step is about, and would be burned into annotated recordings.
+  showOverlay: false,
   mirrored: true,
   // Step 3 — the mouth AR quad is off by default now, because it would sit on
   // top of the teeth it is meant to let you see.
@@ -65,6 +84,7 @@ const logo = new Image();
 logo.crossOrigin = 'anonymous';
 logo.src = `${import.meta.env.BASE_URL}iitd_logo.png`;
 logo.onload = () => overlay.setImage(logo);
+overlay.setVisible(false);
 logo.onerror = () => {
   console.warn('[main] overlay image missing, falling back to a rectangle');
   overlay.setMode('rect');
@@ -178,7 +198,32 @@ function processFrame(nowMs) {
     detectorIsLearned: teeth.detector.isLearnedModel,
     pose: readout ? { yaw: readout.yaw, pitch: readout.pitch, roll: readout.roll } : null,
     opening: readout?.mouthOpen,
+    detectFps: teeth.detectFps,
+    recording: { on: recorder.isRecording, mode: recorder.mode, ms: recorder.elapsedMs },
   });
+
+  // Recording: composite the annotated view and log this frame's analysis.
+  // Both use values already computed above; nothing is re-derived for them.
+  if (recorder.isRecording) {
+    if (recorder.mode === 'annotated') {
+      recorder.compose((c, w, h) => drawBurnIn(c, w, h, fps, toothResult.stats));
+    }
+    if (metaLog.active) {
+      metaLog.log({
+        t_ms: recorder.now(),
+        fps,
+        face: !!landmarkList,
+        mouth: !!mouth,
+        opening: readout?.mouthOpen,
+        reason: teeth.reason,
+        stats: toothResult.stats,
+        timing: teeth.timing,
+        tracks: toothResult.tracks,
+        anchor,
+        anchors3D: teeth.anchors3D,
+      });
+    }
+  }
 
   scheduleNext();
 }
@@ -228,6 +273,7 @@ async function start() {
 }
 
 async function stop() {
+  if (recorder.isRecording) await toggleRecording();
   stopLoop();
   await camera.stop();
   anchor.reset();
@@ -240,7 +286,9 @@ async function stop() {
 function setButtons(running) {
   document.getElementById('startBtn').disabled = running;
   document.getElementById('stopBtn').disabled = !running;
-  document.getElementById('switchBtn').disabled = !running;
+  document.getElementById('switchBtn').disabled = !running || recorder.isRecording;
+  const rec = document.getElementById('recordBtn');
+  if (rec) rec.disabled = !running || !recorder.isSupported;
 }
 
 // Release the camera when the tab is hidden; mobile browsers may otherwise
@@ -321,9 +369,209 @@ document.getElementById('logFrameBtn')?.addEventListener('click', () => {
   hud.setBanner('Logged one frame of detections to the browser console (F12).', 'info');
   setTimeout(() => hud.setBanner('', 'info'), 3500);
 });
-document.getElementById('resetTeethBtn')?.addEventListener('click', () => {
-  teeth.reset();
-  hud.setSelectedTooth(null);
+for (const id of ['resetTeethBtn', 'resetTrackingBtn']) {
+  document.getElementById(id)?.addEventListener('click', () => {
+    teeth.reset();
+    hud.setSelectedTooth(null);
+  });
+}
+
+// ------------------------------------------------------- detector choice
+const fmt = (v) => (v == null ? 'n/a' : v.toFixed(2));
+
+function describeDetector(det) {
+  if (!det.isLearnedModel) {
+    return 'Hand-designed whiteness threshold + interdental split. Kept as the '
+      + 'measured baseline; not a trained model.';
+  }
+  const i = det.info;
+  if (!i) return 'Learned model loaded (no model card found next to it).';
+  const ds = (i.training?.datasets ?? []).map((d) => `${d.name} (${d.license})`).join(' + ');
+  const v = i.validation ?? {};
+  return `${i.name} v${i.version} — ${Math.round(i.parameters / 1000)}k parameters, `
+    + `${i.input.width}x${i.input.height} input, runs on-device (ONNX Runtime Web). `
+    + `Trained on ${ds}. Held-out validation: teeth-mask IoU ${fmt(v.ep_teeth_iou)} on selfie `
+    + `images, ${fmt(v.da_teeth_iou)} on intraoral photos; tooth-centre F1 ${fmt(v.da_center_f1)}.`;
+}
+
+async function selectDetector(key) {
+  const sel = document.getElementById('detectorSelect');
+  try {
+    if (key === 'learned') hud.setBanner('Loading tooth model…', 'info');
+    const det = await teeth.setDetector(key, key === 'learned' ? { modelUrl: MODEL_URL } : {});
+    hud.setModelInfo(describeDetector(det));
+    hud.setBanner('', 'info');
+  } catch (err) {
+    console.warn('[main] could not load detector', key, err);
+    if (key !== 'classical') {
+      await teeth.setDetector('classical');
+      if (sel) sel.value = 'classical';
+      hud.setModelInfo(describeDetector(teeth.detector));
+      hud.setBanner(`Learned tooth model unavailable (${err.message}). `
+        + 'Falling back to the classical detector.', 'error');
+    }
+  }
+}
+bind('detectorSelect', (e) => selectDetector(e.target.value));
+
+// ------------------------------------------------------------- recording
+const recBtn = document.getElementById('recordBtn');
+const recFormat = document.getElementById('recFormatValue');
+if (recFormat) {
+  recFormat.textContent = recorder.isSupported
+    ? `Format: ${recorder.format.mimeType} → .${recorder.format.ext}`
+    : 'Recording is not supported in this browser (no MediaRecorder).';
+}
+
+/** Small text block burned into annotated recordings (unmirrored). */
+function drawBurnIn(c, w, h, fps, stats) {
+  const lines = [
+    `Dental AR ${APP_VERSION}  ${new Date().toLocaleString()}`,
+    `FPS ${fps.toFixed(1)}   teeth ${stats?.count ?? 0} (U${stats?.upper ?? 0}/L${stats?.lower ?? 0})`
+      + `   conf ${stats?.count ? stats.avgConfidence.toFixed(2) : '—'}`,
+    `tracking ${stats?.stabilityLabel ?? '—'}${stats?.stability != null ? ` ${(stats.stability * 100).toFixed(0)}%` : ''}`
+      + `   detector ${teeth.detectorKey}   rec ${formatDuration(recorder.elapsedMs)}`,
+  ];
+  const fs = Math.max(11, Math.round(h / 48));
+  c.save();
+  c.font = `600 ${fs}px ui-monospace, Menlo, monospace`;
+  const bw = Math.max(...lines.map((l) => c.measureText(l).width)) + 16;
+  c.fillStyle = 'rgba(6,10,16,0.72)';
+  c.fillRect(8, 8, bw, lines.length * (fs + 5) + 10);
+  c.fillStyle = '#e6f6ff';
+  lines.forEach((l, i) => c.fillText(l, 16, 8 + (i + 1) * (fs + 5)));
+  c.restore();
+}
+
+// The indicator and timer must not depend on frames being processed: on a
+// slow phone, or while the face is out of view, the loop can be sparse.
+let recTick = null;
+function refreshRecordingHud() {
+  hud.setEvaluation({
+    recording: { on: recorder.isRecording, mode: recorder.mode, ms: recorder.elapsedMs },
+  });
+}
+
+function setRecordingUi(on) {
+  clearInterval(recTick);
+  recTick = on ? setInterval(refreshRecordingHud, 250) : null;
+  refreshRecordingHud();
+  if (!recBtn) return;
+  recBtn.textContent = on ? '\u25A0 STOP RECORDING' : '\u25CF RECORD VIDEO';
+  recBtn.classList.toggle('is-recording', on);
+  for (const id of ['recordAnnotationsToggle', 'recordMetadataToggle', 'detectorSelect', 'switchBtn']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = on;
+  }
+}
+
+async function toggleRecording() {
+  if (!recorder.isRecording) {
+    const annotated = !!document.getElementById('recordAnnotationsToggle')?.checked;
+    try {
+      await recorder.start({ annotated });
+    } catch (err) {
+      hud.setBanner(err.message || String(err), 'error');
+      return;
+    }
+    if (document.getElementById('recordMetadataToggle')?.checked) {
+      const i = teeth.detector.info;
+      metaLog.begin({
+        app: 'dental-ar', appVersion: APP_VERSION,
+        startedAt: new Date().toISOString(),
+        mode: recorder.mode,
+        video: { mimeType: recorder.format.mimeType, width: video.videoWidth, height: video.videoHeight },
+        mirrored: { preview: state.mirrored, annotatedVideo: annotated && state.mirrored, rawVideo: false },
+        coordinates: 'bbox/center/contour: raw (unmirrored) video pixels; uv: mouth-local (1.0 = mouth width); '
+          + 'pos3d_m: camera metres (depth estimated, see README Step 3b)',
+        timebase: 't_ms is milliseconds since the MediaRecorder start event',
+        detector: {
+          key: teeth.detectorKey, name: teeth.detector.name, learned: teeth.detector.isLearnedModel,
+          model: i ? { name: i.name, version: i.version, created: i.created } : null,
+        },
+        camera: camera.getSettings(),
+        userAgent: navigator.userAgent,
+      });
+    }
+    setRecordingUi(true);
+    return;
+  }
+  if (recBtn) recBtn.disabled = true;
+  const result = await recorder.stop();
+  const doc = metaLog.active ? metaLog.end({
+    recording: {
+      mode: result.mode, duration_ms: Math.round(result.durationMs),
+      mimeType: result.mimeType, bytes: result.blob.size,
+      frames_composited: recorder.framesComposited,
+    },
+  }) : null;
+  setRecordingUi(false);
+  if (recBtn) recBtn.disabled = !state.running;
+  showRecording(result, doc);
+}
+
+function showRecording(result, doc) {
+  if (lastRecording?.result?.url) URL.revokeObjectURL(lastRecording.result.url);
+  lastRecording = { result, doc };
+  const box = document.getElementById('recPreview');
+  const vid = document.getElementById('recVideo');
+  const info = document.getElementById('recInfo');
+  if (!box) return;
+  box.hidden = false;
+  vid.src = result.url;
+  const mb = (result.blob.size / 1e6).toFixed(1);
+  info.textContent = `${result.baseName}.${result.ext} — ${(result.durationMs / 1000).toFixed(1)} s, `
+    + `${mb} MB, ${result.mode}${doc ? `, ${doc.frames.length} metadata frames` : ', no metadata'}`;
+  document.getElementById('recSaveJsonBtn').disabled = !doc;
+}
+
+recBtn?.addEventListener('click', toggleRecording);
+document.getElementById('recSaveVideoBtn')?.addEventListener('click', () => {
+  const r = lastRecording?.result;
+  if (r) saveBlob(r.blob, `${r.baseName}.${r.ext}`);
+});
+document.getElementById('recSaveJsonBtn')?.addEventListener('click', () => {
+  const r = lastRecording;
+  if (r?.doc) saveBlob(MetadataLogger.toBlob(r.doc), `${r.result.baseName}.json`);
+});
+document.getElementById('recShareBtn')?.addEventListener('click', async () => {
+  const r = lastRecording;
+  if (!r) return;
+  const files = [new File([r.result.blob], `${r.result.baseName}.${r.result.ext}`, { type: r.result.blob.type })];
+  if (r.doc) files.push(new File([MetadataLogger.toBlob(r.doc)], `${r.result.baseName}.json`, { type: 'application/json' }));
+  if (navigator.canShare?.({ files })) {
+    try { await navigator.share({ files, title: r.result.baseName }); return; } catch (e) {
+      if (e?.name === 'AbortError') return;
+    }
+  }
+  for (const f of files) await saveBlob(f, f.name);
+});
+document.getElementById('recDiscardBtn')?.addEventListener('click', () => {
+  if (lastRecording?.result?.url) URL.revokeObjectURL(lastRecording.result.url);
+  lastRecording = null;
+  const box = document.getElementById('recPreview');
+  if (box) box.hidden = true;
+  document.getElementById('recVideo').removeAttribute('src');
+});
+
+// Capture the current raw frame + its detections, for ground-truth annotation.
+document.getElementById('captureGtBtn')?.addEventListener('click', async () => {
+  if (!state.running || !video.videoWidth) return;
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  const png = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const one = new MetadataLogger();
+  one.begin({ app: 'dental-ar', appVersion: APP_VERSION, startedAt: new Date().toISOString(),
+    mode: 'still', video: { mimeType: 'image/png', width: c.width, height: c.height },
+    mirrored: { preview: state.mirrored, rawVideo: false },
+    detector: { key: teeth.detectorKey, name: teeth.detector.name, learned: teeth.detector.isLearnedModel } });
+  one.log({ t_ms: 0, fps: camera.fps, face: true, mouth: true, stats: teeth.tracker.stats(),
+    timing: teeth.timing, tracks: teeth.tracker.visibleTracks(), anchor, anchors3D: teeth.anchors3D });
+  const base = `dental_frame_${new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15)}`;
+  await saveBlob(png, `${base}.png`);
+  await saveBlob(MetadataLogger.toBlob(one.end()), `${base}.json`);
 });
 
 // Tap/click a tooth to select it. Canvas coordinates must be un-mirrored first,
@@ -340,6 +588,7 @@ canvas.addEventListener('pointerdown', (ev) => {
 });
 
 setButtons(false);
+selectDetector(document.getElementById('detectorSelect')?.value ?? 'learned');
 if (!CameraManager.isSecureContext()) {
   hud.setBanner(
     'This page is not a secure context, so the camera is blocked. '
@@ -351,4 +600,6 @@ window.dentalAR = {
   camera, faceTracker, mouthTracker, anchor, overlay, state,
   // Step 3
   teeth, toothRenderer, debugRenderer, ar3d,
+  recorder, metaLog,
+  getLastRecording: () => lastRecording,
 };

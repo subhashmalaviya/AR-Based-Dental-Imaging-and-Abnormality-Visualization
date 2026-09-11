@@ -38,6 +38,20 @@ export class HUD {
       depthSource: root.getElementById('depthSourceValue'),
       selPos: root.getElementById('selPosValue'),
       selRot: root.getElementById('selRotValue'),
+      selVis: root.getElementById('selVisValue'),
+      modelInfo: root.getElementById('modelInfoValue'),
+      // --- research / evaluation panel ---
+      evalTeeth: root.getElementById('evalTeethValue'),
+      evalConf: root.getElementById('evalConfValue'),
+      evalStability: root.getElementById('evalStabilityValue'),
+      evalFps: root.getElementById('evalFpsValue'),
+      evalDetFps: root.getElementById('evalDetFpsValue'),
+      evalInfer: root.getElementById('evalInferValue'),
+      evalTrack: root.getElementById('evalTrackValue'),
+      evalRec: root.getElementById('evalRecValue'),
+      evalDur: root.getElementById('evalDurValue'),
+      recIndicator: root.getElementById('recIndicator'),
+      recTimer: root.getElementById('recTimer'),
     };
     this._fpsSamples = [];
   }
@@ -52,6 +66,7 @@ export class HUD {
     if (this.el.selConf) this.el.selConf.textContent = conf.toFixed(2);
     if (this.el.selTracking) this.el.selTracking.textContent = track.status;
     if (this.el.selArch) this.el.selArch.textContent = track.arch;
+    if (this.el.selVis) this.el.selVis.textContent = track.visibility ?? '—';
     const a = track.anchor3D ?? null;
     if (this.el.selPos) {
       const t = a?.getTransform();
@@ -85,7 +100,7 @@ export class HUD {
   update({ faceDetected, mouthTracked, anchorValid, fps, delegate, resolution,
             pose, opening, coasting,
             teeth, toothTiming, toothReason, selectedTooth, anchors3D,
-            detectorName, detectorIsLearned }) {
+            detectorName, detectorIsLearned, detectFps, recording }) {
     this.setPill(this.el.faceStatus,
       faceDetected ? 'Face detected' : 'Face not detected',
       faceDetected ? 'ok' : 'bad');
@@ -136,14 +151,51 @@ export class HUD {
       if (this.el.totalMs) this.el.totalMs.textContent = `${toothTiming.total.toFixed(1)} ms`;
     }
     if (this.el.detector && detectorName) {
-      // Say plainly what the detector is. This is a classical CV method, and
-      // the UI must not let it read as an AI result.
+      // Say plainly what the detector is: the classical method must never read
+      // as an AI result, and the learned one says what it was trained on.
       this.el.detector.textContent = detectorIsLearned
-        ? detectorName : `${detectorName} — not a neural network`;
+        ? `${detectorName} — trained model, on-device`
+        : `${detectorName} — not a neural network`;
     }
+    this.setEvaluation({ teeth, toothTiming, fps, detectFps, recording });
     this.setAnchors3D(anchors3D ?? null);
     this.setSelectedTooth(selectedTooth ?? null);
   }
+
+  /** Research / evaluation panel — every value is a live measurement. */
+  setEvaluation({ teeth, toothTiming, fps, detectFps, recording }) {
+    const set = (el, v) => { if (el) el.textContent = v; };
+    if (fps === undefined && teeth === undefined) {
+      // recording-only refresh (timer tick): leave the live stats untouched
+      const on = !!recording?.on;
+      set(this.el.evalRec, on ? `ON (${recording.mode})` : 'OFF');
+      set(this.el.evalDur, formatDuration(recording?.ms ?? 0));
+      if (this.el.recIndicator) this.el.recIndicator.hidden = !on;
+      set(this.el.recTimer, formatDuration(recording?.ms ?? 0));
+      return;
+    }
+    if (teeth) {
+      set(this.el.evalTeeth, teeth.count
+        ? `${teeth.count}  (upper ${teeth.upper ?? 0}, lower ${teeth.lower ?? 0})` : '0');
+      set(this.el.evalConf, teeth.count ? teeth.avgConfidence.toFixed(2) : '—');
+      set(this.el.evalStability, teeth.stability == null ? '—'
+        : `${teeth.stabilityLabel} (${(teeth.stability * 100).toFixed(0)}%)`);
+    }
+    set(this.el.evalFps, fps ? fps.toFixed(1) : '—');
+    set(this.el.evalDetFps, detectFps ? detectFps.toFixed(1) : '—');
+    if (toothTiming) {
+      set(this.el.evalInfer, `${toothTiming.detect.toFixed(1)} ms`);
+      set(this.el.evalTrack, `${toothTiming.track.toFixed(1)} ms`);
+    }
+    const on = !!recording?.on;
+    const dur = formatDuration(recording?.ms ?? 0);
+    set(this.el.evalRec, on ? `ON (${recording.mode})` : 'OFF');
+    set(this.el.evalDur, dur);
+    if (this.el.recIndicator) this.el.recIndicator.hidden = !on;
+    set(this.el.recTimer, dur);
+  }
+
+  setModelInfo(text) { if (this.el.modelInfo) this.el.modelInfo.textContent = text; }
 
   /**
    * 3D anchor read-out. Distance and depth source are shown together on
@@ -165,4 +217,10 @@ export class HUD {
         : '—';
     }
   }
+}
+
+export function formatDuration(ms) {
+  const t = Math.floor(ms / 1000);
+  const m = Math.floor(t / 60), sec = t % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }

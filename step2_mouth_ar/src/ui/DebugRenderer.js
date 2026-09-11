@@ -15,6 +15,10 @@
 const ARCH_UPPER = [124, 240, 176];   // green
 const ARCH_LOWER = [255, 178, 122];   // orange
 const CANDIDATE = [90, 150, 255];     // blue
+// learned-model view
+const TEETH_P = [80, 230, 255];      // cyan   — P(teeth)
+const BOUNDARY = [255, 60, 220];     // magenta — interdental boundary
+const CENTER = [255, 230, 60];       // yellow — tooth-centre peaks
 
 /**
  * Run `fn` with the mirror undone.
@@ -100,7 +104,14 @@ export class DebugRenderer {
     for (let i = 0; i < W * H; i++) {
       // dim the underlying image so the masks read clearly
       let r = src[i * 4] * 0.35, g = src[i * 4 + 1] * 0.35, b = src[i * 4 + 2] * 0.35;
-      if (dbg) {
+      if (dbg?.maps) {
+        // learned model: teeth probability (cyan), interdental boundary
+        // (magenta), tooth-centre peaks (yellow) — exactly what it predicted
+        const pt = dbg.maps.teeth[i], pb = dbg.maps.boundary[i], pc = dbg.maps.center[i];
+        r += TEETH_P[0] * 0.6 * pt; g += TEETH_P[1] * 0.6 * pt; b += TEETH_P[2] * 0.6 * pt;
+        r += BOUNDARY[0] * pb; g += BOUNDARY[1] * pb; b += BOUNDARY[2] * pb;
+        if (pc > 0.3) { r += CENTER[0] * pc; g += CENTER[1] * pc; b += CENTER[2] * pc; }
+      } else if (dbg) {
         if (dbg.candidate?.[i]) { r += CANDIDATE[0] * 0.30; g += CANDIDATE[1] * 0.30; b += CANDIDATE[2] * 0.30; }
         if (dbg.upper?.[i]) { r += ARCH_UPPER[0] * 0.55; g += ARCH_UPPER[1] * 0.55; b += ARCH_UPPER[2] * 0.55; }
         if (dbg.lower?.[i]) { r += ARCH_LOWER[0] * 0.55; g += ARCH_LOWER[1] * 0.55; b += ARCH_LOWER[2] * 0.55; }
@@ -156,10 +167,15 @@ export class DebugRenderer {
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.fillText('rectified ROI (what the detector sees)', x0, y0 - 5);
-    ctx.fillText('threshold + arches + tooth contours', x0 + dw + 6, y0 - 5);
+    ctx.fillText(dbg?.maps ? 'model output + tooth instances' : 'threshold + arches + tooth contours',
+      x0 + dw + 6, y0 - 5);
 
     // legend
-    const legend = [
+    const legend = dbg?.maps ? [
+      ['P(teeth) — learned mask', TEETH_P],
+      ['interdental boundary (predicted)', BOUNDARY],
+      ['tooth-centre peaks (predicted)', CENTER],
+    ] : [
       ['candidate (whiteness > threshold)', CANDIDATE],
       ['upper arch', ARCH_UPPER],
       ['lower arch', ARCH_LOWER],
@@ -191,10 +207,17 @@ export class DebugRenderer {
       `tracking         ${stats?.status ?? '—'}  (${stats?.stable ?? 0} stable)`,
       `inference        ${timing?.detect?.toFixed(2) ?? '—'} ms`,
       `detection FPS    ${detectFps ? detectFps.toFixed(1) : '—'}`,
-      `aperture px      ${dbg?.aperturePx ?? '—'}`,
-      `whiteness thr    ${dbg?.threshold?.toFixed(0) ?? '—'}`,
-      `candidate px     ${dbg?.candidatePx ?? '—'}`,
-      `arch px          ${dbg?.archPx ?? '—'}`,
+      ...(dbg?.maps ? [
+        `model            ${dbg.inferenceMs?.toFixed(1) ?? '—'} ms`,
+        `decode           ${dbg.decodeMs?.toFixed(1) ?? '—'} ms`,
+        `instances        ${dbg.toothCount ?? '—'}`,
+        `stability        ${stats?.stability != null ? (stats.stability * 100).toFixed(0) + '%' : '—'}`,
+      ] : [
+        `aperture px      ${dbg?.aperturePx ?? '—'}`,
+        `whiteness thr    ${dbg?.threshold?.toFixed(0) ?? '—'}`,
+        `candidate px     ${dbg?.candidatePx ?? '—'}`,
+        `arch px          ${dbg?.archPx ?? '—'}`,
+      ]),
     ];
     const w = 210, h = lines.length * 15 + 14;
     const x = canvasW - w - 10, y = 10;

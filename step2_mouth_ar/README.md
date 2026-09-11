@@ -16,6 +16,11 @@ Nothing the overlay draws is positioned in screen space.
 
 **Step 3** adds real-time detection and tracking of the user's actual visible
 teeth, inside the mouth ROI, from the live camera — see §13 onwards.
+**Step 3b** gives every tracked tooth its own 3D anchor (§21–27).
+**Step 3 v2** replaces the hand-tuned tooth detector with a trained model,
+upgrades tracking, and adds local video recording with per-frame metadata and
+an evaluation tool — with every accuracy number measured against ground truth
+(§28 onwards).
 
 **Scope:** tracking, detection and AR alignment only. No abnormality detection,
 no diagnosis, no CT/CBCT registration, no dental image input — those are Step 4,
@@ -40,7 +45,7 @@ and §18 describes the seams left for them.
 cd step2_mouth_ar
 npm install
 npm run vendor:wasm     # already done, re-run if node_modules is rebuilt
-npm test                # 35 tests (Step 2 + Step 3), no browser needed
+npm test                # all unit tests (Steps 2, 3, 3b, 3 v2), no browser needed
 npm run dev             # http://localhost:5173  (laptop webcam)
 ```
 
@@ -774,3 +779,301 @@ rotation, size in mm — plus the provenance line and the active depth source.
   depth but not clipped by lips or by each other.
 * **Tooth IDs are tracking IDs**, not FDI/anatomical numbers — unchanged
   from Step 3.
+
+---
+
+# STEP 3 v2 — Accurate tooth detection, stable tracking, recording
+
+Professor's feedback on Step 3: *the tooth detection is not accurate enough —
+detect all visible teeth as accurately as possible*, and *add a video recording
+button*. This section documents what was audited, what replaced it, how it was
+measured, and how to record sessions for analysis. Dental X-ray / CBCT
+registration and any diagnosis are **not** part of this step.
+
+## 28. Audit of the v1 detector (before any change)
+
+| Question | Finding |
+|---|---|
+| Model used | **None.** `ToothSegmenter.js` is hand-written classical CV. |
+| Trained for teeth? / dataset | No training, no dataset; thresholds hand-tuned on one clip of one person. |
+| Classes | None learned. Upper/lower came from geometry (run nearest the top/bottom lip). |
+| Individual teeth or mouth region? | Individual instances — but as **vertical column slices** of a bright band, not tooth boundaries. |
+| Method | Heuristic: whiteness `V·(1−S)` → percentile threshold → per-column arch runs → cut at brightness minima. |
+| Missed teeth | Side / back teeth darker than the threshold; faint interdental gaps never cut (two teeth → one); a porting bug eroded the lip aperture with a 13×13 kernel instead of the tuned 7×7, clipping upper incisors that touch the lip. |
+| False detections | Lit lips, wet-lip highlights, tongue when no lower arch is visible. |
+| Overlaps / duplicates | Textured wide crowns cut in two; in clenched smiles upper and lower teeth fused into one tall slice. |
+| Partially visible teeth | Slices < 5 % of the arch width dropped. |
+| Lighting | Whiteness assumption breaks under colour casts / dim light. |
+| Face angle | Yaw compresses side teeth into slices a few px wide → merged or dropped. |
+| Tracking | Greedy IoU+centroid; the tracker was fed an empty list on skipped frames, so with "detect every N > 1" every tooth flickered invisible. |
+
+**Measured baseline of the v1 detector** (before any model change; every
+number from `tools/eval_detectors.mjs`, the app's own detector code run in
+Node on crops cut with the app's own mouth rectification):
+
+| Evaluation set | Ground truth | v1 as shipped | v1 + aperture-erosion fix |
+|---|---|---|---|
+| `mouthtestvideo.mp4`, 9 frames, **103 teeth** (instances) | provisional point GT, `tests/eval/gt_mouthtestvideo.json` | precision 50.0 %, **recall 35.9 %**, F1 41.8 % — 15 duplicates, 19 merges | precision 63.5 %, recall 45.6 %, F1 53.1 % — 14 duplicates, 23 merges |
+| same, clear teeth only (72) | partial teeth ignored | F1 50.3 % | F1 63.8 % |
+| EasyPortrait test split, **360 selfies** of many people (300 with teeth) | third-party pixel masks | teeth-pixel **IoU 27.4 %**, recall 31.5 %, precision 67.8 % | IoU 31.1 %, recall 36.4 %, precision 68.4 % |
+
+In words: the v1 detector found roughly **one visible tooth in three**, and
+where it did find teeth it often fused two into one box or cut one in two —
+which is what the professor saw.
+
+## 29. Model: what was chosen and why
+
+| Candidate | Domain | Per-tooth? | Licence / access | Used? |
+|---|---|---|---|---|
+| **DentalAI** (P. Valluri, 2023) | intraoral photos, 2,495 images, 22,731 tooth polygons | ✅ | CC BY 4.0, public | ✅ instance supervision |
+| **EasyPortrait** (Kvanchiani et al., 2023) | ~20 k selfie portraits, TEETH mask class | semantic | CC BY-SA 4.0 variant | ✅ selfie-domain appearance |
+| SegmentAnyTooth (2025) | intraoral photos, FDI numbering | ✅ | weights only via **signed non-commercial agreement** | ✗ — plug-in path documented |
+| AlphaDent (2025) | intraoral DSLR | pathology masks only | CC BY-SA 4.0 | ✗ wrong task |
+| DENTEX, STS-Tooth, Tufts, OralSeg … | panoramic X-ray / CBCT | — | various | ✗ wrong modality |
+| Generic detectors (COCO YOLO, SAM) | generic objects | — | — | ✗ not tooth models |
+
+**ToothNet-lite** is a small U-Net written for this project (≈0.12 M
+parameters, ≈80 M multiply-adds at 160×120): stride-2 stem, three scales,
+dilated context at the bottleneck, and three output maps — *teeth*,
+*tooth-centre heatmap*, *interdental boundary*. DentalAI teaches where one
+tooth ends and the next begins; EasyPortrait, cropped with the app's own mouth
+rectification, teaches what teeth look like to a phone front camera (its
+instance losses are masked out because it has no per-tooth labels).
+Ultralytics YOLO was deliberately not used: its AGPL-3.0 licence would extend
+to the trained weights.
+
+## 30. How detection works now
+
+```
+camera frame → FaceTracker (MediaPipe) → MouthTracker → MouthARAnchor
+   → MouthROI: rectified 160×120 mouth crop (head roll removed)
+   → ToothNet-lite (ONNX Runtime Web, WASM, on-device)
+        teeth P(x)   centre heatmap   boundary map
+   → toothDecode: centre peaks seed teeth; each enamel pixel joins the seed it
+     reaches most cheaply, crossing a predicted boundary is expensive
+     (Dial's bucket-queue watershed); unseeded enamel blobs still become teeth
+   → jaw: geometric (instance height vs the lip-aperture midline, split at the
+     largest gap) — the training data has no jaw labels
+   → visibility: partial if cut by the ROI/lip edge or < 45 % of median size
+   → ToothTracker v2 → one-euro smoothing → 3D anchors → AR rendering
+```
+
+Per tooth the pipeline exposes: tracking ID, jaw, bounding box, contour and an
+instance-mask reference, centre, confidence, visibility, tracking state and
+the Step-3b 3D anchor (position / orientation / scale / provenance).
+
+## 31. How tracking works now (v2)
+
+* **Duplicate suppression (NMS)** on raw detections (IoU > 0.5 or 80 % containment).
+* **Hungarian** (optimal) assignment instead of greedy.
+* **ByteTrack-style two stages**: confident detections vs all tracks, then weak
+  detections vs confirmed tracks only — weak evidence keeps a tooth alive but
+  can never mint a new ID.
+* **Jaw-relative coordinates**: upper teeth measured from the upper inner lip,
+  lower from the lower inner lip, cancelling mouth opening (the largest motion
+  left after the head is removed).
+* Lifecycle: tentative → confirmed after 2 hits; tentative misses are dropped;
+  confirmed tracks survive 18 frames of occlusion (closed mouth) and get their
+  IDs back; converged duplicate tracks are merged keeping the older ID.
+* **Stability is measured**: mean Jaccard overlap of visible IDs between
+  consecutive frames (last 30), shown live and stored in the metadata.
+* Kalman / optical flow were rejected: in jaw-relative mouth-local space a
+  tooth's velocity is ~0, so a motion model adds lag without information.
+
+## 32. Accuracy — measured, before vs after
+
+All numbers from `tools/eval_detectors.mjs` (the app's own detector modules,
+run in Node on crops cut with the app's own mouth rectification). Decoder
+thresholds were tuned on **DentalAI validation** crops only; none of the sets
+below was used for training or tuning.
+
+| Test set | Ground truth | v1 as shipped | v1 + aperture fix | **v2 learned** |
+|---|---|---|---|---|
+| `mouthtestvideo.mp4`, 9 frames, 103 teeth — **all teeth** | provisional point GT (own annotation, see §36) | P 50.0 %, R 35.9 %, **F1 41.8 %** | P 63.5 %, R 45.6 %, F1 53.1 % | P 86.7 %, R 75.7 %, **F1 80.8 %** |
+| ↳ missed / false pos. / duplicates / merges | | 66 / 37 / 15 / 19 | 56 / 27 / 14 / 23 | **25 / 12 / 2 / 15** |
+| ↳ count error per frame (MAE) · jaw accuracy | | 3.22 · 78.4 % | 3.22 · 74.5 % | **1.67 · 100 %** |
+| same, **clear teeth only** (72; partial teeth ignored) | | R 50.0 %, F1 50.3 %, 36 missed, 13 merges | R 62.5 %, F1 63.8 % | **R 90.3 %, F1 86.1 %, 7 missed, 2 merges** |
+| EasyPortrait test — 360 selfies of different people (300 with teeth) | third-party pixel masks | teeth IoU 27.4 % (P 67.8, R 31.5) | IoU 31.1 % (P 68.4, R 36.4) | **teeth IoU 68.7 %** (P 94.6, R 71.5) |
+| ↳ closed-mouth images with any detection | | 0 / 60 | 0 / 60 | **0 / 60** |
+| DentalAI test — 250 intraoral photos, 2,187 teeth | third-party per-tooth polygons | not applicable¹ | not applicable¹ | **P 79.5 %, R 84.7 %, F1 82.0 %**, mask IoU 0.79 |
+
+¹ the classical method needs the lip aperture to find the arches; clinical
+intraoral crops have none, so running it there would not be a fair test.
+
+How to read these:
+
+* On the project's own video the learned detector finds **about three in four
+  visible teeth (nine in ten clearly visible ones)** versus one in three
+  before, with far fewer split teeth. Most remaining errors are merges of two
+  lower incisors in blurred, clenched frames and the thin upper band of a
+  wide-open mouth.
+* The EasyPortrait number is the strictest one: it scores what the app
+  actually outputs — the union of per-tooth outlines, clipped to the lip
+  aperture and gated by mouth opening — against pixel masks drawn by the
+  dataset's annotators. (The model's raw teeth mask scores IoU 0.85 on the
+  EasyPortrait validation split; outline decimation and the aperture clip
+  account for the gap.)
+* The own-video ground truth is provisional (§39). The two public test sets
+  are independent of this project.
+
+## 33. Performance
+
+| Quantity | Measured | Where |
+|---|---|---|
+| Model size | 124,899 parameters, 505 KB ONNX, ≈80 M multiply-adds per 160×120 crop | model card |
+| Model inference, browser (Chrome 153, WASM, multithreaded via COOP/COEP) | **median 6.6 ms**, p90 6.9 ms | desktop, 8-core x86, in-page |
+| Model inference, WASM single-thread (no isolation) | median 16.5 ms, p90 23 ms | same machine, ONNX Runtime Web |
+| Decode + jaw + outline per frame | ≈2–4 ms | included in 9–15 ms/frame harness totals |
+| Classical v1 detector, for comparison | 2–6 ms | same harness |
+
+* Inference is **asynchronous**: one inference in flight, tracking and
+  smoothing carry the teeth in between, results land in mouth-local
+  coordinates so a ~1-frame-old result is still correctly placed. A slower
+  device lowers the detection rate, not the camera frame rate; the live panel
+  shows camera FPS, detection FPS, inference and tracking time separately.
+* Camera → tooth pipeline stays entirely on the device: no frame is sent to
+  Vercel, an API route or any server.
+* **Not measured on a physical phone in this work.** Mid-range phone CPUs run
+  WASM roughly 3–5× slower than this desktop, i.e. an *estimated* 20–60 ms per
+  inference (≈15–40 detections/s) — to be confirmed with the test plan, whose
+  recordings store per-frame FPS and inference time.
+* Headless-Chrome end-to-end runs used for functional testing reached only
+  4–13 camera FPS because MediaPipe ran on a software GPU there; those
+  frame rates are an artefact of the test environment, not a result.
+
+
+## 34. Recording
+
+* **● RECORD VIDEO** (top of the side panel) starts/stops; a blinking red dot
+  and timer appear in the top bar; the evaluation panel shows Recording ON and
+  the duration.
+* **Record annotations** off → the camera's own stream is recorded (raw,
+  unmirrored — use this for ground truth, datasets and re-running detection).
+  On → the preview as seen (video + tooth masks, IDs, confidence, landmarks, AR
+  overlay) plus a burned-in line with FPS, tooth count, stability and time.
+* After stopping: an inline **preview**, **Download video**, **Download
+  metadata**, **Share / Save to device** (Web Share sheet — the practical way to
+  save into Photos/Files on iOS and Android) and **Discard**.
+* Format: WebM (VP9 → VP8) on Chrome / Firefox / Android; Safari (iPhone /
+  iPad / macOS) records MP4/H.264, selected automatically.
+* File names: `dental_tracking_YYYYMMDD_HHMMSS.webm` + `.json`, saved to the
+  browser's download folder (desktop / Android) or wherever the share sheet
+  puts them (iOS).
+* Everything is local: MediaRecorder encodes in the browser, no frame is ever
+  uploaded, and the Vercel deployment serves static files only.
+* **Capture frame for ground truth** saves the current raw frame as PNG + its
+  detections as JSON, for quick single-frame annotation.
+
+## 35. Metadata format (`dental-ar-recording/1`)
+
+```json
+{
+  "header": {
+    "schema": "dental-ar-recording/1", "app": "dental-ar", "appVersion": "3.2.0",
+    "startedAt": "2026-09-11T10:15:30.120Z", "mode": "raw",
+    "video": { "mimeType": "video/webm;codecs=vp9", "width": 1280, "height": 720 },
+    "mirrored": { "preview": true, "annotatedVideo": false, "rawVideo": false },
+    "coordinates": "bbox/center/contour: raw (unmirrored) video pixels; uv: mouth-local ...",
+    "timebase": "t_ms is milliseconds since the MediaRecorder start event",
+    "detector": { "key": "learned", "name": "Learned tooth segmenter (U-Net)", "learned": true,
+                  "model": { "name": "ToothNet-lite", "version": "1.0" } },
+    "camera": { "width": 1280, "height": 720, "facingMode": "user", "frameRate": 30 }
+  },
+  "summary": { "frames": 362, "duration_ms": 12071, "mean_fps": 29.6,
+               "mean_teeth_when_mouth": 9.4, "unique_tooth_ids": 14, ... },
+  "frames": [
+    { "i": 0, "t_ms": 16.4, "fps": 29.8, "face": true, "mouth": true, "opening": 0.41,
+      "n": 9, "avg_conf": 0.83, "stability": "stable",
+      "timing": { "detect_ms": 11.2, "track_ms": 1.4, "total_ms": 3.1 },
+      "teeth": [ { "id": 3, "jaw": "upper", "conf": 0.91, "state": "stable", "hits": 57,
+                   "uv": [0.071, -0.083], "center": [652.3, 401.8],
+                   "bbox": [640.1, 380.2, 24.5, 41.0],
+                   "contour": [[641.0, 382.5], ...],
+                   "pos3d_m": [0.004, 0.018, 0.312], "depth_src": "mediapipe-metric-head-model" } ] }
+  ]
+}
+```
+
+## 36. Evaluation and ground truth
+
+* **`eval.html`** (served with the app, offline): load a recording + its JSON,
+  step through frames, click the crown centre of every visible tooth
+  (upper/lower, partial), draw ignore regions, and read precision / recall /
+  F1 / missed / false positives / duplicates / merges / count error / jaw
+  accuracy, plus FPS, latency and ID continuity from the metadata. Export the
+  ground truth (reusable for the next model) and a JSON report.
+* **`tools/analyze_recording.mjs`**: the same statistics for many recordings
+  from the command line, optionally scored against exported ground truth.
+* **`tools/eval_detectors.mjs`**: runs the app's detector modules in Node on
+  rectified crops and scores them — the source of every number in §32.
+* Metrics are only ever computed from annotations; with none, the UI says so.
+
+## 37. Reproducing the model
+
+```bash
+cd step2_mouth_ar
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install onnx onnxruntime opencv-python mediapipe numpy
+# 1. data (DentalAI tarball from Dataset Ninja; EasyPortrait subset by range requests)
+python tools/train/fetch_easyportrait.py --stats mask_stats.json --out _data/ep
+python tools/train/build_dataset.py --dentalai-tar dentalai.tar --ep-dir _data/ep \
+       --ep-ann annotations.zip --model public/models/face_landmarker.task --out _data/ds
+# 2. train (CPU, ~40 min) -> tooth_seg.onnx + tooth_seg.json
+python tools/train/train_tooth_model.py --data _data/ds --out _data/model --epochs 35
+cp _data/model/tooth_seg.{onnx,json} public/models/
+```
+
+A different model (e.g. SegmentAnyTooth weights obtained under their licence,
+or a model fine-tuned on your own annotated recordings) plugs in by
+implementing `detectAsync()` in a `ToothDetector` subclass and registering it.
+
+## 38. Test plan
+
+See [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md): twelve recording conditions
+(straight, smile, wide / slightly open, head left / right / tilted, near / far,
+lighting, partial visibility, background), how to annotate them, and which
+metrics to report for each.
+
+## 39. Step 3 v2 known limitations
+
+* **Not 100 % and not medical-grade.** The numbers in §32 are the measured
+  performance; teeth are still missed and occasionally split or merged.
+* **Evaluation on the project's own video uses provisional ground truth**
+  (visual annotation of a 480×864 phone clip, one person). Treat it as
+  indicative; re-annotate with `eval.html` and report the test-plan recordings.
+  The EasyPortrait and DentalAI results use third-party labels.
+* **Instance supervision comes from clinical intraoral photos** (DentalAI).
+  The selfie-domain data (EasyPortrait) has only an all-teeth mask, so tooth
+  separation in selfies is learned by transfer. Errors concentrate on lower
+  incisors in clenched smiles, shadowed premolars and heavily blurred frames.
+  Fine-tuning on annotated recordings made with this app is the direct fix.
+* **Upper/lower jaw is assigned geometrically**, not learned (no jaw labels
+  exist in the training data); its accuracy is measured in §32.
+* **No FDI tooth numbers**: IDs are tracking IDs.
+* **Detection needs an open mouth** (opening ratio ≥ 0.10), as in v1.
+* **Phone performance was not measured on a physical phone in this work.**
+  Desktop timings are measured (§33); on phones, detection runs asynchronously
+  so a slower model lowers the *detection* rate, not the camera frame rate.
+  Use the FPS / latency fields in the recorded metadata to measure a device.
+* **Recording:** Chrome's WebM files carry no duration header (the evaluation
+  tool works around it; ffmpeg can remux); Safari records MP4; on iOS use
+  *Share / Save to device*. Annotated recordings of the front camera are
+  mirrored like the preview — annotate ground truth on **raw** recordings.
+* **Cross-origin isolation** (COOP/COEP headers) is required for multithreaded
+  inference; the dev server and `vercel.json` send it. Any future third-party
+  resource must be served with CORP/CORS headers or it will be blocked.
+
+## 40. What should be implemented next
+
+1. Record the twelve test-plan sessions on the target phones and annotate
+   them in `eval.html` (≥ 10 frames each): this gives per-condition accuracy and
+   real device FPS.
+2. Fine-tune ToothNet on those annotations (same `train_tooth_model.py`, add a
+   third source) — the largest expected accuracy gain, because it closes the
+   selfie-vs-clinical gap for tooth *separation*.
+3. Learn the jaw label (upper/lower) as a fourth output once annotated data
+   has jaw labels.
+4. If the SegmentAnyTooth weights are obtained under their licence, wrap them
+   as a `ToothDetector` and compare on the same ground truth.
+5. Only then proceed to Step 4 (dental image registration).
+

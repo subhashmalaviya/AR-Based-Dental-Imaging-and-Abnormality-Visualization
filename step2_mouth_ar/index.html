@@ -4,16 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
   <meta name="theme-color" content="#0d1117" />
-  <title>Dental AR — Step 2: Mouth Tracking</title>
+  <link rel="icon" href="data:," />
+  <title>Dental AR — Tooth Detection &amp; Recording</title>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand__title">Dental AR — Step 2</span>
-      <span class="brand__sub">Real-time face &amp; mouth tracking</span>
+      <span class="brand__title">Dental AR — Step 3</span>
+      <span class="brand__sub">Real-time tooth detection, tracking &amp; recording</span>
     </div>
     <div class="stats">
+      <div class="stat stat--rec" id="recIndicator" hidden>
+        <span class="stat__label">Recording</span>
+        <span class="stat__value"><span class="rec-dot"></span><span id="recTimer">00:00</span></span>
+      </div>
       <div class="stat"><span class="stat__label">FPS</span><span id="fpsValue" class="stat__value">—</span></div>
       <div class="stat"><span class="stat__label">Backend</span><span id="delegateValue" class="stat__value">—</span></div>
       <div class="stat"><span class="stat__label">Input</span><span id="resValue" class="stat__value">—</span></div>
@@ -29,6 +34,55 @@
     </div>
 
     <aside class="panel">
+      <section class="panel__block panel__block--rec">
+        <h2 class="panel__heading">Recording <span class="tag">local only</span></h2>
+        <button id="recordBtn" class="btn btn--record" disabled>&#9679; RECORD VIDEO</button>
+        <label class="row"><input type="checkbox" id="recordAnnotationsToggle" /><span>Record annotations
+          <em>tooth masks, IDs, confidence, landmarks, AR overlay, FPS &amp; tracking status</em></span></label>
+        <label class="row"><input type="checkbox" id="recordMetadataToggle" checked /><span>Save per-frame metadata (JSON)</span></label>
+        <p class="hint" id="recFormatValue">—</p>
+        <div id="recPreview" class="rec-preview" hidden>
+          <video id="recVideo" controls playsinline muted></video>
+          <p class="hint" id="recInfo"></p>
+          <div class="buttons buttons--wrap">
+            <button id="recSaveVideoBtn" class="btn btn--primary">Download video</button>
+            <button id="recSaveJsonBtn" class="btn">Download metadata</button>
+            <button id="recShareBtn" class="btn">Share / Save to device</button>
+            <button id="recDiscardBtn" class="btn">Discard</button>
+          </div>
+        </div>
+        <p class="hint">
+          Recorded and encoded in this browser with MediaRecorder. Nothing is
+          uploaded — frames never leave the device.
+        </p>
+      </section>
+
+      <section class="panel__block">
+        <h2 class="panel__heading">Research / evaluation</h2>
+        <dl class="readout">
+          <div><dt>Visible teeth detected</dt><dd id="evalTeethValue">—</dd></div>
+          <div><dt>Average confidence</dt><dd id="evalConfValue">—</dd></div>
+          <div><dt>Tracking stability</dt><dd id="evalStabilityValue">—</dd></div>
+          <div><dt>Camera FPS</dt><dd id="evalFpsValue">—</dd></div>
+          <div><dt>Detection FPS</dt><dd id="evalDetFpsValue">—</dd></div>
+          <div><dt>Inference</dt><dd id="evalInferValue">—</dd></div>
+          <div><dt>Tracking</dt><dd id="evalTrackValue">—</dd></div>
+          <div><dt>Recording</dt><dd id="evalRecValue">OFF</dd></div>
+          <div><dt>Duration</dt><dd id="evalDurValue">00:00</dd></div>
+        </dl>
+        <div class="buttons buttons--wrap">
+          <button id="resetTrackingBtn" class="btn">Reset Tracking</button>
+          <button id="captureGtBtn" class="btn">Capture frame for ground truth</button>
+        </div>
+        <p class="hint">
+          Accuracy metrics (precision / recall / F1 / IoU) are only shown where
+          they were computed from manually annotated frames — open the
+          <a href="./eval.html" target="_blank" rel="noopener">evaluation tool</a>
+          with a recording and its JSON. Stability is measured live from
+          tooth-ID continuity between frames.
+        </p>
+      </section>
+
       <section class="panel__block">
         <h2 class="panel__heading">Tracking status</h2>
         <div class="pills">
@@ -55,7 +109,8 @@
           <div><dt>ID</dt><dd id="selIdValue">—</dd></div>
           <div><dt>Confidence</dt><dd id="selConfValue">—</dd></div>
           <div><dt>Tracking</dt><dd id="selTrackingValue">—</dd></div>
-          <div><dt>Arch</dt><dd id="selArchValue">—</dd></div>
+          <div><dt>Jaw</dt><dd id="selArchValue">—</dd></div>
+          <div><dt>Visibility</dt><dd id="selVisValue">—</dd></div>
           <div><dt>3D position <em>(x,y,z)</em></dt><dd id="selPosValue">—</dd></div>
           <div><dt>3D rotation <em>(in face)</em></dt><dd id="selRotValue">—</dd></div>
         </dl>
@@ -67,6 +122,14 @@
 
       <section class="panel__block">
         <h2 class="panel__heading">Tooth detection <span class="tag">Step 3</span></h2>
+        <label class="row row--stack">
+          <span>Detector</span>
+          <select id="detectorSelect">
+            <option value="learned" selected>Learned U-Net (trained on tooth data)</option>
+            <option value="classical">Classical CV (v1 baseline, not a neural network)</option>
+          </select>
+        </label>
+        <p class="hint" id="modelInfoValue">—</p>
         <label class="row"><input type="checkbox" id="teethToggle" checked /><span>Enable tooth detection</span></label>
         <label class="row"><input type="checkbox" id="contoursToggle" checked /><span>Tooth contours</span></label>
         <label class="row"><input type="checkbox" id="toothIdsToggle" checked /><span>Tooth IDs</span></label>
@@ -129,7 +192,7 @@
           </select>
         </label>
         <label class="row row--stack">
-          <span>Split sensitivity <em>(higher = more teeth)</em></span>
+          <span>Split sensitivity <em>(classical detector only; higher = more teeth)</em></span>
           <input type="range" id="splitRange" min="0.85" max="0.99" step="0.01" value="0.94" />
         </label>
         <label class="row row--stack">
@@ -155,7 +218,7 @@
         <h2 class="panel__heading">Display</h2>
         <label class="row"><input type="checkbox" id="landmarksToggle" checked /><span>Show landmarks &amp; anchor</span></label>
         <label class="row"><input type="checkbox" id="meshToggle" /><span>Show full face mesh</span></label>
-        <label class="row"><input type="checkbox" id="overlayToggle" checked /><span>Show AR overlay</span></label>
+        <label class="row"><input type="checkbox" id="overlayToggle" /><span>Show AR overlay <em>(Step-2 logo demo; covers the teeth)</em></span></label>
       </section>
 
       <section class="panel__block">

@@ -139,3 +139,22 @@ body {
   border-radius: 8px; padding: 8px 10px; margin-top: 6px; align-items: flex-start;
 }
 .row--highlight em { display: block; margin-top: 2px; line-height: 1.35; }
+
+/* ---- recording ---------------------------------------------------------- */
+.panel__block--rec { border-color: rgba(239,68,68,.35); }
+.btn--record {
+  width: 100%; padding: 12px 14px; font-size: 15px; font-weight: 700; letter-spacing: .4px;
+  background: #b91c1c; border-color: #ef4444; color: #fff; margin-bottom: 6px;
+}
+.btn--record:hover:not(:disabled) { background: #dc2626; border-color: #fca5a5; }
+.btn--record.is-recording { background: #1f2937; border-color: #ef4444; color: #fecaca; }
+.buttons--wrap { flex-wrap: wrap; }
+.rec-preview { margin-top: 10px; }
+.rec-preview video { width: 100%; border-radius: 8px; background: #000; max-height: 260px; }
+.stat--rec .stat__value { color: #fca5a5; display: inline-flex; align-items: center; gap: 6px; }
+.rec-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;
+  animation: recblink 1s steps(2, start) infinite;
+}
+@keyframes recblink { to { visibility: hidden; } }
+.hint a { color: var(--accent); }

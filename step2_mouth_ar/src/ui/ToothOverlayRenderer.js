@@ -61,7 +61,10 @@ export class ToothOverlayRenderer {
         ctx.strokeStyle = selected ? '#ffffff' : color;
         ctx.lineWidth = selected ? 3 : 1.8;
         ctx.lineJoin = 'round';
+        // Partially visible teeth (cut by the lip / frame edge) are dashed.
+        if (t.visibility === 'partial') ctx.setLineDash([4, 3]);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
 
       if (this.show.boxes) {
