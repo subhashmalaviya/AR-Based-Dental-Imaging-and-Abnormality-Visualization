@@ -294,5 +294,15 @@
  "attribution": [
   "DentalAI - Pawan Valluri (2023), CC BY 4.0, https://www.kaggle.com/datasets/pawanvalluri/dental-segmentation",
   "EasyPortrait - Kvanchiani et al. (2023), CC BY-SA 4.0 variant, https://huggingface.co/datasets/gofixyourself/EasyPortrait"
+ ],
+ "roi": {
+  "padding": 0.16,
+  "padTop": 0.3
+ },
+ "roi_note": "Top padding 0.30 (vs 0.16 during training) chosen on validation: on a dim-room laptop recording the upper row fell outside the 0.16 crop in wide-open mouths (recall 32.8 % -> 44.8 %, merges 21 -> 12); cost on EasyPortrait validation 70.6 % -> 70.1 % teeth IoU.",
+ "rejected": [
+  "1.2: fine-tune with webcam / heavy-compression augmentation \u2014 worse on every validation set (own-recording F1 56.1 -> 41.3 %)",
+  "boundary-core seeding and wide-region re-splitting \u2014 no validation gain (kept as opt-in decoder options)",
+  "test-time auto-gain \u2014 worse than the low-light model on dim validation"
  ]
 }

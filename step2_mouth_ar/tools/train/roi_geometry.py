@@ -54,11 +54,17 @@ def mouth_frame(landmarks, w, h):
             "local": local, "opening": opening, "px": px}
 
 
-def roi_bounds(fr, pad=PAD):
+def roi_bounds(fr, pad=PAD, pad_top=None, pad_bottom=None):
+    """pad_top / pad_bottom: headroom above / below the inner lip ring
+    (fraction of its height). MediaPipe's inner ring sits inside the real
+    lip line when the mouth is wide open, so the upper row can fall outside a
+    tight crop. Both default to `pad`."""
     u0, v0 = fr["local"].min(axis=0)
     u1, v1 = fr["local"].max(axis=0)
-    du, dv = (u1 - u0) * pad, (v1 - v0) * pad
-    return (u0 - du, u1 + du, v0 - dv, v1 + dv)
+    du = (u1 - u0) * pad
+    dt = (v1 - v0) * (pad if pad_top is None else pad_top)
+    db = (v1 - v0) * (pad if pad_bottom is None else pad_bottom)
+    return (u0 - du, u1 + du, v0 - dt, v1 + db)
 
 
 def roi_maps(fr, bounds, out_w, out_h):

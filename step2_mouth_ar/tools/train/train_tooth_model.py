@@ -113,7 +113,8 @@ def centers_and_boundary(inst):
 
 
 # ----------------------------------------------------------- augmentation
-LOWLIGHT = False   # set by --lowlight: extra dim-room / webcam augmentation
+LOWLIGHT = False   # set by --lowlight: extra dim-room augmentation
+WEBCAM = False     # set by --webcam: laptop-webcam / recorded-video degradation
 
 
 def augment(img, lab, rng):
@@ -161,6 +162,14 @@ def augment(img, lab, rng):
     if rng.random() < 0.35:
         ok, enc = cv2.imencode(".jpg", img[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, rng.randint(25, 80)])
         img = cv2.imdecode(enc, cv2.IMREAD_COLOR)[..., ::-1]
+    if WEBCAM and rng.random() < 0.5:
+        # 720p laptop webcam at arm's length, then video compression: the mouth
+        # is small (few pixels per tooth) and dark regions go blocky.
+        f = rng.uniform(0.28, 0.55)
+        small = cv2.resize(img, (max(8, int(W * f)), max(8, int(H * f))), interpolation=cv2.INTER_AREA)
+        ok, enc = cv2.imencode(".jpg", small[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, rng.randint(12, 45)])
+        small = cv2.imdecode(enc, cv2.IMREAD_COLOR)[..., ::-1]
+        img = cv2.resize(small, (W, H), interpolation=cv2.INTER_LINEAR)
     return np.ascontiguousarray(img), np.ascontiguousarray(lab)
 
 
@@ -281,9 +290,11 @@ def main():
     ap.add_argument("--seed", type=int, default=5)
     ap.add_argument("--init", help="fine-tune from this state_dict (.pt)")
     ap.add_argument("--lowlight", action="store_true", help="extra low-light augmentation")
+    ap.add_argument("--webcam", action="store_true", help="webcam / video-compression augmentation")
+    ap.add_argument("--pad-top", type=float, default=None, help="ROI top padding the EP crops were built with (recorded in the model card)")
     a = ap.parse_args()
-    global LOWLIGHT
-    LOWLIGHT = a.lowlight
+    global LOWLIGHT, WEBCAM
+    LOWLIGHT, WEBCAM = a.lowlight, a.webcam
 
     torch.manual_seed(a.seed)
     random.seed(a.seed)
@@ -373,11 +384,12 @@ def main():
         "input": {"name": "roi", "width": W, "height": H, "layout": "NCHW", "color": "RGB",
                   "mean": [MEAN] * 3, "std": [STD] * 3},
         "outputs": {"name": "maps", "channels": ["teeth", "center", "boundary"], "activation": "sigmoid"},
+        "roi": {"padding": 0.16, "padTop": a.pad_top if a.pad_top is not None else 0.16},
         "decode": {"semThr": 0.5, "ctrThr": 0.25, "peakRadius": 3, "boundaryWeight": 10},
         "parameters": int(n_params),
         "training": {
             "epochs": a.epochs, "samples_per_epoch": a.per_epoch, "batch": a.bs, "seed": a.seed,
-            "init": a.init, "lowlight_augmentation": a.lowlight,
+            "init": a.init, "lowlight_augmentation": a.lowlight, "webcam_augmentation": a.webcam,
             "torch": torch.__version__,
             "datasets": [
                 {"name": "DentalAI", "license": "CC BY 4.0", "author": "Pawan Valluri (2023)",

@@ -23,10 +23,19 @@ export const ROI_W = 192;
 export const ROI_H = 144;
 
 export class MouthROI {
-  constructor({ width = ROI_W, height = ROI_H, padding = 0.16 } = {}) {
+  /**
+   * @param {object} [o]
+   * @param {number} [o.padding=0.16]  headroom around the inner lip ring
+   * @param {number} [o.padTop]  headroom ABOVE the ring. MediaPipe's inner
+   *   ring sits inside the real lip line when the mouth is wide open, so with
+   *   the same 16 % the upper row falls out of the crop. The tooth model's card
+   *   specifies the value it was validated with (0.30 since model 1.2).
+   */
+  constructor({ width = ROI_W, height = ROI_H, padding = 0.16, padTop } = {}) {
     this.width = width;
     this.height = height;
     this.padding = padding;
+    this.padTop = padTop ?? padding;
 
     // Canvas created lazily on first extract(), so the geometry (bounds,
     // snapshot, aperture) also works headless — e.g. in the Node tests.
@@ -70,7 +79,8 @@ export class MouthROI {
     // opening instead of clipping the teeth (a fixed window did exactly that).
     const du = (u1 - u0) * this.padding;
     const dv = (v1 - v0) * this.padding;
-    this.bounds = { u0: u0 - du, u1: u1 + du, v0: v0 - dv, v1: v1 + dv };
+    const dt = (v1 - v0) * this.padTop;
+    this.bounds = { u0: u0 - du, u1: u1 + du, v0: v0 - dt, v1: v1 + dv };
     this.localRing = local;
     this.pose = pose;
     // Inner-lip midpoints: the tracker measures upper teeth from the upper lip

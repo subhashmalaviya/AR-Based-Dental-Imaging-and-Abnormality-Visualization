@@ -102,7 +102,15 @@ export class LearnedToothDetector extends ToothDetector {
   get name() { return 'Learned tooth segmenter (U-Net)'; }
   get isLearnedModel() { return true; }
   get isAsync() { return true; }
-  get preferredRoiSize() { return { width: this.inputWidth, height: this.inputHeight }; }
+  /** ROI size and geometry this model expects (from its model card). */
+  get preferredRoiSize() {
+    return {
+      width: this.inputWidth,
+      height: this.inputHeight,
+      padding: this.info?.roi?.padding ?? 0.16,
+      padTop: this.info?.roi?.padTop ?? this.info?.roi?.padding ?? 0.16,
+    };
+  }
 
   setParams(p) { Object.assign(this.params, p); }
 
@@ -136,7 +144,9 @@ export class LearnedToothDetector extends ToothDetector {
     const buf = new Float32Array(3 * n);
     const d = image.data;
     const [m0, m1, m2] = this.mean, [s0, s1, s2] = this.std;
-    const g = this.params.autoGain ? this._gain(d, n) : 1;
+    this.lastBrightness = this._p97(d, n);
+    const g = this.params.autoGain
+      ? Math.min(3, Math.max(1, (0.8 * 255) / Math.max(this.lastBrightness, 1))) : 1;
     this.lastGain = g;
     for (let i = 0; i < n; i++) {
       buf[i] = (Math.min(1, (d[i * 4] / 255) * g) - m0) / s0;
@@ -151,12 +161,14 @@ export class LearnedToothDetector extends ToothDetector {
    * reaches ~0.8 (enamel is the brightest thing in a mouth), capped at 3x.
    * Never darkens. Cheap: one histogram over 19k pixels.
    */
-  _gain(d, n) {
+  _p97(d, n) {
+    // 97th-percentile brightness of the mouth crop: where the enamel sits.
+    // Also drives the app's low-light warning.
     const hist = new Uint32Array(256);
     for (let i = 0; i < n; i++) hist[Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2])]++;
-    let acc = 0, p97 = 255;
-    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= 0.97 * n) { p97 = v; break; } }
-    return Math.min(3, Math.max(1, (0.8 * 255) / Math.max(p97, 1)));
+    let acc = 0;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= 0.97 * n) return v; }
+    return 255;
   }
 
   /** Raw probability maps for one ROI (exposed for the debug view / tests). */
@@ -214,6 +226,7 @@ export class LearnedToothDetector extends ToothDetector {
       width: W, height: H,
       maps, labels,
       toothCount: dets.length,
+      brightness: this.lastBrightness,
       inferenceMs: this.lastInferenceMs,
       decodeMs: performance.now() - t1,
     };

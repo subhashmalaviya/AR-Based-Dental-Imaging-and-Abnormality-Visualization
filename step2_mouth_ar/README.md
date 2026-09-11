@@ -948,6 +948,46 @@ wide-open mouth can still come out as one region when it is only a few pixels
 tall. A **raw** recording in the target room, annotated in `eval.html`, is the
 way to confirm these numbers on real low-light footage.
 
+### 32c. v3.4 — upper and side teeth in a dim room
+
+A recording from a dim room with a laptop webcam still showed missing upper
+and side teeth. Diagnosed step by step on that recording (validation only):
+
+1. **The tracker was not the cause.** A full-pipeline replay (every other
+   frame: crop → model → the app's `ToothTracker`) displayed ≈ 90 % of what
+   the model detected.
+2. **The mouth crop cut the upper row off.** MediaPipe's inner-lip ring sits
+   inside the real lip line when the mouth is wide open or the head tilts
+   back, so with 16 % headroom the upper incisors fell outside the crop the
+   model sees. Top headroom is now **30 %**, and the value travels in the model
+   card (`roi.padTop`) so a model always gets the crop it was validated with.
+3. **Dim, compressed footage makes neighbouring teeth merge.** Decoder options
+   (boundary-core seeding, re-splitting wide regions) and a fine-tune with
+   heavy webcam/compression augmentation (model 1.2) were all tried; none
+   improved validation — model 1.2 was clearly worse — so they were rejected
+   (kept only as documented opt-in options).
+4. **Some frames are simply too dark** to separate teeth. The panel now shows
+   a **Low light** warning when the mouth crop's 97th-percentile brightness
+   stays below 150/255 (this recording: median 180, darkest frames 135;
+   daylight footage: 246), and the value is logged per frame.
+
+Effect of the 30 % top headroom (model 1.1, no other change):
+
+| Set | 16 % (3.3.0) | **30 % (3.4.0)** |
+|---|---|---|
+| Dim-room recording, 6 frames, 67 teeth *(validation)* | recall 32.8 %, F1 44.4 %, 21 merges | **recall 44.8 %, F1 56.1 %, 12 merges** |
+| `mouthtestvideo` test, all teeth | F1 83.1 % | F1 80.0 % |
+| `mouthtestvideo` test, clear teeth | F1 85.5 % | F1 84.2 % |
+| EasyPortrait test, teeth IoU | 68.4 % | 67.8 % |
+
+The extra headroom costs a little where the teeth already fitted the crop and
+recovers a lot where the upper row was cut off. **Even so, in that dim room the
+model finds only about half of the visible teeth** — the remaining gap is
+image quality (dark, compressed, small mouth) and the lack of per-tooth
+training labels for selfie images. Honest next steps: record with light in
+front of the face, and annotate raw recordings from this setup so the model
+can be fine-tuned on its real conditions (§40).
+
 ## 33. Performance
 
 | Quantity | Measured | Where |
@@ -1097,8 +1137,11 @@ If you pulled the code without reinstalling, run `npm run vendor:ort` once.
   (visual annotation of a 480×864 phone clip, one person). Treat it as
   indicative; re-annotate with `eval.html` and report the test-plan recordings.
   The EasyPortrait and DentalAI results use third-party labels.
-* **Low-light results use simulated darkening** of real test images (§32b);
-  no raw low-light recording with ground truth exists yet.
+* **Low-light results use simulated darkening** of real test images (§32b)
+  and one annotated dim-room recording used for validation (§32c); no raw
+  low-light recording with ground truth exists yet. In a dim room roughly
+  half of the visible teeth are found; good front lighting matters more than
+  any setting.
 * **Instance supervision comes from clinical intraoral photos** (DentalAI).
   The selfie-domain data (EasyPortrait) has only an all-teeth mask, so tooth
   separation in selfies is learned by transfer. Errors concentrate on lower

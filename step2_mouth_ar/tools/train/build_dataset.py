@@ -183,6 +183,9 @@ def jitter(fr, b, rng):
     return dict(fr, xa=xa, ya=ya), (cu - hu, cu + hu, cv_ - hv, cv_ + hv)
 
 
+PAD_TOP = None   # set by --pad-top: headroom above the inner lip ring (matches the app's ROI)
+
+
 def build_easyportrait(ep_dir, ann_zip, model, out, rng, crops_per_image):
     manifest = json.load(open(ep_dir / "manifest.json"))
     zf = zipfile.ZipFile(ann_zip)
@@ -219,7 +222,7 @@ def build_easyportrait(ep_dir, ann_zip, model, out, rng, crops_per_image):
         if fr is None:
             stats["no_face"] += 1
             continue
-        b = roi_bounds(fr)
+        b = roi_bounds(fr, pad_top=PAD_TOP)
         teeth = (mask == 8).astype(np.uint8)
         n = 1 if split == "test" else crops_per_image
         for k in range(n):
@@ -257,7 +260,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--crops", type=int, default=3)
     ap.add_argument("--seed", type=int, default=11)
+    ap.add_argument("--pad-top", type=float, default=None)
     a = ap.parse_args()
+    global PAD_TOP
+    PAD_TOP = a.pad_top
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(a.seed)

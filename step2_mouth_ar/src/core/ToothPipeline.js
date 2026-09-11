@@ -29,6 +29,9 @@ import { Tooth3DAnchorSet } from './Tooth3DAnchor.js';
 import './ToothSegmenter.js';        // registers 'classical'
 import './LearnedToothDetector.js';  // registers 'learned'
 
+/** p97 mouth brightness below which the panel warns about low light. */
+export const LOW_LIGHT = 150;
+
 /** Tracker thresholds depend on what the detector's confidence means. */
 const TRACKER_PROFILE = {
   classical: { highConf: 0.30, lowConf: 0.10 },   // heuristic quality score
@@ -63,6 +66,11 @@ export class ToothPipeline {
     this._logNextFrame = false;
     this._inflight = null;
     this._pending = null;
+    // Lighting: smoothed 97th-percentile brightness of the mouth crop.
+    // Below LOW_LIGHT the teeth of this model's training/validation data were
+    // hard to separate (README §32c); the panel says so instead of silently
+    // missing teeth.
+    this.lighting = { p97: null, low: false };
     // Bumped on reset / detector switch: an inference still in flight from
     // before must not feed its (stale) teeth into the fresh tracker.
     this._gen = 0;
@@ -174,6 +182,13 @@ export class ToothPipeline {
     this._frame = 0;
   }
 
+  _noteLighting(p97) {
+    if (!(p97 >= 0)) return;
+    const prev = this.lighting.p97;
+    const v = prev == null ? p97 : prev * 0.9 + p97 * 0.1;
+    this.lighting = { p97: v, low: v < LOW_LIGHT };
+  }
+
   _noteDetection(ms) {
     const now = performance.now();
     this._detectTimes.push(now);
@@ -241,6 +256,7 @@ export class ToothPipeline {
           const job = this.detector.detectAsync(image, aperture, snap)
             .then((dets) => {
               if (gen !== this._gen) return;      // reset / switched meanwhile
+              this._noteLighting(this.detector.lastBrightness);
               this._pending = { dets: dets ?? [], jawRef: snap.jawRef };
               this._noteDetection(performance.now() - started);
             })

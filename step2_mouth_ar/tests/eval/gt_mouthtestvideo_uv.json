@@ -1,0 +1,910 @@
+{
+ "schema": "dental-ar-gt/1",
+ "video": "mouthtestvideo.mp4",
+ "space": "mouth-local",
+ "protocol": [
+  "One point per visible tooth at the crown centre, with jaw (upper/lower).",
+  "partial=true: tooth visibly present but cut by the lips/ROI edge, in deep shadow, or its boundaries are not clearly resolvable.",
+  "ignore: [x,y,w,h] regions where teeth are visible but individual teeth cannot be told apart (e.g. a thin upper band in a wide-open mouth). Detections there are neither counted right nor wrong.",
+  "Frames where no individual tooth can be resolved (motion blur) are not annotated at all."
+ ],
+ "caveat": "PROVISIONAL ground truth made by visual inspection of CLAHE-enhanced crops from a 480x864 phone video. Lower-incisor boundaries in clenched frames are the least certain. Not verified by a dentist; re-annotate with eval.html before relying on the numbers.",
+ "frames": {
+  "mouthtestvideo_f0030": {
+   "teeth": [
+    {
+     "uv": [
+      -0.37837,
+      -0.07295
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.26519,
+      -0.08705
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.11427,
+      -0.0941
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.04922,
+      -0.0941
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.19385,
+      -0.08705
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.29446,
+      -0.07295
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.35322,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.2589,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.17087,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.08912,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.00109,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.08066,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.16241,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.24415,
+      0.06807
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  },
+  "mouthtestvideo_f0060": {
+   "teeth": [
+    {
+     "uv": [
+      -0.41466,
+      -0.05677
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.33901,
+      -0.06319
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.23814,
+      -0.08245
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.09314,
+      -0.09529
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.07077,
+      -0.09529
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.22207,
+      -0.08245
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.32924,
+      -0.06319
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.31379,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.21293,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.10575,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.00772,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.08338,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.17794,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.2662,
+      0.05237
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  },
+  "mouthtestvideo_f0090": {
+   "teeth": [
+    {
+     "uv": [
+      -0.36685,
+      -0.07397
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.25529,
+      -0.09193
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.10655,
+      -0.1039
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.05458,
+      -0.1039
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.20952,
+      -0.09193
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.31488,
+      -0.07397
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.32966,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.21191,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.10035,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.005,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.10416,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.19093,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.2777,
+      0.01581
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  },
+  "mouthtestvideo_f0110": {
+   "teeth": [
+    {
+     "uv": [
+      -0.33168,
+      -0.06307
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.21946,
+      -0.08732
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.07607,
+      -0.09945
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.07355,
+      -0.09945
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.22941,
+      -0.08732
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.32916,
+      -0.06307
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.33791,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.23193,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.12595,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.01996,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.07355,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.1733,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.26058,
+      0.04608
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  },
+  "mouthtestvideo_f0150": {
+   "teeth": [
+    {
+     "uv": [
+      -0.32021,
+      0.28241
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.24691,
+      0.34716
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.1736,
+      0.39571
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.09418,
+      0.41999
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.02087,
+      0.42808
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.05244,
+      0.41999
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.13185,
+      0.38762
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.22349,
+      0.31478
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.28458,
+      0.25814
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": [
+    [
+     -0.308,
+     -0.44593,
+     0.35178,
+     -0.23552
+    ]
+   ]
+  },
+  "mouthtestvideo_f0180": {
+   "teeth": [
+    {
+     "uv": [
+      -0.33101,
+      0.31091
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.24455,
+      0.36451
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.16427,
+      0.41811
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.07781,
+      0.43598
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.01483,
+      0.43598
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.10129,
+      0.41811
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.18157,
+      0.38238
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.25568,
+      0.31091
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": [
+    [
+     -0.34337,
+     -0.54666,
+     0.1754,
+     -0.33227
+    ]
+   ]
+  },
+  "mouthtestvideo_f0300": {
+   "teeth": [
+    {
+     "uv": [
+      -0.3103,
+      0.13261
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.23687,
+      0.14705
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.13898,
+      0.14705
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.04108,
+      0.16149
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.05682,
+      0.16149
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.15472,
+      0.14705
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.24038,
+      0.13261
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": [
+    [
+     -0.57951,
+     -0.51712,
+     -0.18792,
+     -0.04065
+    ],
+    [
+     0.10577,
+     -0.51712,
+     0.49736,
+     -0.04065
+    ]
+   ]
+  },
+  "mouthtestvideo_f0520": {
+   "teeth": [
+    {
+     "uv": [
+      -0.35926,
+      -0.08347
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.23349,
+      -0.09704
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.07627,
+      -0.11061
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.09353,
+      -0.11061
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.23188,
+      -0.09704
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.32622,
+      -0.08347
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.33411,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.23978,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.13916,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.04482,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.04951,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.14384,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.23188,
+      0.06578
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  },
+  "mouthtestvideo_f0540": {
+   "teeth": [
+    {
+     "uv": [
+      -0.1712,
+      -0.16594
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.07447,
+      -0.16594
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.07061,
+      -0.16594
+     ],
+     "jaw": "upper",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.16734,
+      -0.16594
+     ],
+     "jaw": "upper",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.34046,
+      0.10268
+     ],
+     "jaw": "lower",
+     "partial": true
+    },
+    {
+     "uv": [
+      -0.24374,
+      0.14566
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.13493,
+      0.18864
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      -0.04425,
+      0.19938
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.03434,
+      0.19938
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.11293,
+      0.18326
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.20361,
+      0.12954
+     ],
+     "jaw": "lower",
+     "partial": false
+    },
+    {
+     "uv": [
+      0.27615,
+      0.09193
+     ],
+     "jaw": "lower",
+     "partial": true
+    }
+   ],
+   "ignore_uv": []
+  }
+ }
+}

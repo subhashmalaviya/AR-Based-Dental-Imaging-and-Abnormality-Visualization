@@ -306,3 +306,33 @@ test('re-splitting never invents teeth without centre evidence', () => {
   const { instances } = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10, splitWide: true });
   assert.equal(instances.length, 1);
 });
+
+test('boundary cores seed teeth whose centre peaks are too weak', () => {
+  // 4 touching teeth with clear borders but NO centre response at all
+  const W = 64, H = 32, n = W * H;
+  const teeth = new Float32Array(n), center = new Float32Array(n), boundary = new Float32Array(n);
+  for (let y = 8; y < 24; y++) for (let x = 4; x < 52; x++) teeth[y * W + x] = 0.95;
+  for (let t = 1; t < 4; t++) for (let y = 8; y < 24; y++) boundary[y * W + 4 + t * 12] = 0.9;
+  const plain = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10 });
+  const cores = decodeToothMaps({ teeth, center, boundary }, W, H, null, { minArea: 10, coreSeeds: true });
+  assert.equal(plain.instances.length, 1, 'without cores the row is one region');
+  assert.equal(cores.instances.length, 4, 'with cores each tooth is separate');
+  cores.instances.forEach((t) => assert.ok(t.confidence > 0.7, 'core-seeded teeth keep a usable confidence'));
+});
+
+test('ROI top padding adds headroom above the lip ring only', async () => {
+  const { MouthROI } = await import('../src/core/MouthROI.js');
+  // 478 fake landmarks: the inner ring on a flat ellipse, pose = identity
+  const lm = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  const { LIPS_INNER_RING } = await import('../src/landmarks/FaceLandmarkIndices.js');
+  LIPS_INNER_RING.forEach((i, k) => {
+    const a = (k / LIPS_INNER_RING.length) * 2 * Math.PI;
+    lm[i] = { x: 0.5 + 0.1 * Math.cos(a), y: 0.5 + 0.04 * Math.sin(a), z: 0 };
+  });
+  const pose = { origin: { x: 50, y: 50, z: 0 }, basis: { x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } }, scale: 20 };
+  const a = new MouthROI(); a.computeBounds(lm, pose, 100, 100);
+  const b = new MouthROI({ padTop: 0.30 }); b.computeBounds(lm, pose, 100, 100);
+  assert.ok(b.bounds.v0 < a.bounds.v0, 'more room above');
+  assert.equal(b.bounds.v1, a.bounds.v1);
+  assert.equal(b.bounds.u0, a.bounds.u0);
+});

@@ -51,7 +51,7 @@ export class MetadataLogger {
    * @param {Array} f.tracks visible ToothTracks (smoothed)
    * @param {object} f.anchor MouthARAnchor (for mouth-local -> pixel)
    */
-  log({ t_ms, fps, face, mouth, opening, reason, stats, timing, tracks, anchor, anchors3D }) {
+  log({ t_ms, fps, face, mouth, opening, reason, stats, timing, tracks, anchor, anchors3D, light }) {
     if (!this.active) return;
     const teeth = [];
     for (const t of tracks ?? []) {
@@ -102,6 +102,7 @@ export class MetadataLogger {
       n: teeth.length,
       avg_conf: stats?.count ? r3(stats.avgConfidence) : null,
       stability: stats?.status ?? null,
+      light: light == null ? null : Math.round(light),
       timing: timing ? {
         detect_ms: r1(timing.detect), track_ms: r1(timing.track), total_ms: r1(timing.total),
       } : null,

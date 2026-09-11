@@ -164,6 +164,19 @@ for (const D of detectors) {
       continue;
     }
     const g = gt.frames[rec.id];
+    // Ground truth may be stored in mouth-local (u, v) units, so one
+    // annotation scores any ROI geometry: a tooth that falls outside a tight
+    // crop lands outside the image and correctly counts as missed.
+    if (gt.space === 'mouth-local' && !g._px) {
+      const bx = rec.bounds;
+      const toPx = ([u, v]) => [((u - bx.u0) / (bx.u1 - bx.u0)) * GT_W, ((v - bx.v0) / (bx.v1 - bx.v0)) * GT_H];
+      g._px = true;
+      g.teeth = g.teeth.map((t) => ({ ...t, point: toPx(t.uv) }));
+      g.ignore = (g.ignore_uv ?? []).map(([u0, v0, u1, v1]) => {
+        const [x0, y0] = toPx([u0, v0]); const [x1, y1] = toPx([u1, v1]);
+        return [x0, y0, x1 - x0, y1 - y0];
+      });
+    }
     let gts = g.teeth.map((t) => (t.point
       ? { point: { x: t.point[0], y: t.point[1] }, jaw: t.jaw, partial: !!t.partial }
       : { box: { x: t.box[0], y: t.box[1], w: t.box[2], h: t.box[3] },

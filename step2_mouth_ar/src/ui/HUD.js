@@ -195,6 +195,17 @@ export class HUD {
     set(this.el.recTimer, dur);
   }
 
+  /** Low-light warning: add light rather than trust a dark detection. */
+  setLighting(l) {
+    const pill = document.getElementById('lightStatus');
+    const val = document.getElementById('evalLightValue');
+    if (pill) {
+      pill.hidden = !l?.low;
+      pill.textContent = 'Low light — add light in front of the face';
+    }
+    if (val) val.textContent = l?.p97 == null ? '—' : `${l.low ? 'LOW' : 'OK'} (${Math.round(l.p97)}/255)`;
+  }
+
   setModelInfo(text) { if (this.el.modelInfo) this.el.modelInfo.textContent = text; }
 
   /** Persistent (not cleared by setBanner) — a fallback must never go unnoticed. */

@@ -31,7 +31,7 @@ import { SessionRecorder, saveBlob } from './core/SessionRecorder.js';
 import { MetadataLogger } from './core/MetadataLogger.js';
 import { formatDuration } from './ui/HUD.js';
 
-const APP_VERSION = '3.3.0';
+const APP_VERSION = '3.4.0';
 const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
 
 const video = document.getElementById('camera');
@@ -201,6 +201,7 @@ function processFrame(nowMs) {
     detectFps: teeth.detectFps,
     recording: { on: recorder.isRecording, mode: recorder.mode, ms: recorder.elapsedMs },
   });
+  hud.setLighting(teeth.lighting);
 
   // Recording: composite the annotated view and log this frame's analysis.
   // Both use values already computed above; nothing is re-derived for them.
@@ -221,6 +222,7 @@ function processFrame(nowMs) {
         tracks: toothResult.tracks,
         anchor,
         anchors3D: teeth.anchors3D,
+        light: teeth.lighting.p97,
       });
     }
   }

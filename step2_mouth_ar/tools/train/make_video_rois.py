@@ -56,6 +56,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--model", required=True, help="face_landmarker.task")
     ap.add_argument("--min-open", type=float, default=0.08)
+    ap.add_argument("--pad-top", type=float, default=None, help="top padding (default: same as the sides)")
+    ap.add_argument("--pad-bottom", type=float, default=None, help="bottom padding (default: same as the sides)")
     a = ap.parse_args()
 
     out = Path(a.out)
@@ -79,7 +81,7 @@ def main():
                 h, w = frame.shape[:2]
                 fr = mouth_frame(lm, w, h)
                 if fr is not None and fr["opening"] >= a.min_open:
-                    b = roi_bounds(fr)
+                    b = roi_bounds(fr, pad_top=a.pad_top, pad_bottom=a.pad_bottom)
                     fid = f"{name}_f{i:04d}"
                     rec = {"id": fid, "video": Path(path).name, "frame": i, "t_ms": round(t_ms, 1),
                            "frame_size": [w, h], "opening": round(fr["opening"], 4),

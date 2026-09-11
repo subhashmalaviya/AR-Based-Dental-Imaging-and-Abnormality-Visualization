@@ -139,7 +139,13 @@ export function decodeToothMaps(maps, W, H, aperture = null, o = {}) {
   for (let i = 0; i < n; i++) fg[i] = sem[i] >= semThr && (!inside || inside[i]) ? 1 : 0;
 
   // ---- seeds ----------------------------------------------------------
-  const peaks = findPeaks(ctr, W, H, fg, ctrThr, peakR);
+  let peaks = findPeaks(ctr, W, H, fg, ctrThr, peakR);
+  // Boundary-core seeding (opt-in): split the enamel mask along the predicted
+  // interdental borders; every core region that contains no centre peak gets
+  // one seed at its own strongest centre response. In dim / low-resolution
+  // frames the centre peaks are often weak while the borders are still clear —
+  // without this, a whole row of teeth becomes one un-seeded region.
+  if (o.coreSeeds === true) peaks = addCoreSeeds(peaks, fg, bnd, ctr, W, H, o);
 
   // ---- seeded growth, Dial's algorithm (integer bucket queue) ----------
   const labels = new Int32Array(n).fill(-1);
@@ -219,12 +225,16 @@ export function decodeToothMaps(maps, W, H, aperture = null, o = {}) {
   for (let l = 0; l < L; l++) {
     if (area[l] < minArea) continue;
     const seeded = l < peaks.length;
+    const fromCore = seeded && !!peaks[l].core;
     const peak = seeded ? peaks[l].score : ctr[orphanOf.get(l)];
     const meanSem = semSum[l] / area[l];
     // Confidence: how enamel-like the region is and how clearly the network
     // saw a tooth centre in it. An orphan (no peak) is penalised.
-    const confidence = Math.max(0, Math.min(1,
-      (0.55 * meanSem + 0.45 * Math.min(1, peak / 0.6)) * (seeded ? 1 : 0.7)));
+    // A core seed is backed by the predicted borders instead of a centre
+    // peak: scored on the mask alone, without the orphan penalty.
+    const confidence = Math.max(0, Math.min(1, fromCore
+      ? 0.85 * meanSem
+      : (0.55 * meanSem + 0.45 * Math.min(1, peak / 0.6)) * (seeded ? 1 : 0.7)));
     instances.push({
       label: l,
       area: area[l],
@@ -240,6 +250,41 @@ export function decodeToothMaps(maps, W, H, aperture = null, o = {}) {
     });
   }
   return { instances, labels };
+}
+
+function addCoreSeeds(peaks, fg, bnd, ctr, W, H, o) {
+  const bThr = o.coreBoundaryThr ?? 0.4;
+  const minCore = o.minCoreArea ?? Math.max(8, Math.round(W * H * 0.0015));
+  const n = W * H;
+  const core = new Int32Array(n).fill(-1);
+  const hasPeak = new Set();
+  const peakAt = new Set(peaks.map((p) => p.i));
+  const out = peaks.slice();
+  let c = 0;
+  for (let s = 0; s < n; s++) {
+    if (!fg[s] || bnd[s] >= bThr || core[s] !== -1) continue;
+    const stack = [s];
+    core[s] = c;
+    let area = 0, best = s, seeded = false;
+    while (stack.length) {
+      const i = stack.pop();
+      area++;
+      if (peakAt.has(i)) seeded = true;
+      if (ctr[i] > ctr[best]) best = i;
+      const x = i % W, y = (i / W) | 0;
+      for (const [dx, dy] of N4) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+        const j = yy * W + xx;
+        if (fg[j] && bnd[j] < bThr && core[j] === -1) { core[j] = c; stack.push(j); }
+      }
+    }
+    if (!seeded && area >= minCore) {
+      out.push({ i: best, x: best % W, y: (best / W) | 0, score: ctr[best], core: true });
+    }
+    c++;
+  }
+  return out;
 }
 
 function splitWide(labels, L, nSeeded, ctr, bnd, fg, W, H, o, bndWeight) {
