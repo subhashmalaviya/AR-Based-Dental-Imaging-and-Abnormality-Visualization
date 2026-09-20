@@ -161,3 +161,106 @@ body {
 
 .warn-box { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
   background: rgba(245,158,11,.14); color: #fcd34d; border: 1px solid rgba(245,158,11,.4); }
+
+/* ---- 32-tooth half-arch reference section & particular error breakdown ---- */
+.arch-card {
+  margin: 8px 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+.arch-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.arch-tab-btn {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.arch-tab-btn.active {
+  background: var(--accent);
+  color: #04222f;
+  border-color: var(--accent);
+}
+.arch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.arch-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.arch-table td {
+  padding: 3px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.arch-table input[type=number] {
+  width: 60px;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.arch-table input[type=number]:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.tooth-type-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.tooth-type-tag--incisor  { background: rgba(0,229,255,0.15); color: #00e5ff; border: 1px solid rgba(0,229,255,0.35); }
+.tooth-type-tag--canine   { background: rgba(255,209,102,0.15); color: #ffd166; border: 1px solid rgba(255,209,102,0.35); }
+.tooth-type-tag--premolar { background: rgba(179,136,255,0.15); color: #b388ff; border: 1px solid rgba(179,136,255,0.35); }
+.tooth-type-tag--molar    { background: rgba(0,245,212,0.15); color: #00f5d4; border: 1px solid rgba(0,245,212,0.35); }
+
+.particular-breakdown {
+  margin-top: 10px;
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.particular-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.particular-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  padding: 5px 6px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  z-index: 1;
+}
+.particular-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-variant-numeric: tabular-nums;
+}

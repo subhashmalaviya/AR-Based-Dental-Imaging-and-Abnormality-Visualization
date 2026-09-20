@@ -85,6 +85,7 @@ const state = {
   // top of the teeth it is meant to let you see.
   showTeeth: true,
   toothDebug: false,   // hides Step-2 clutter + shows the segmenter's own view
+  segregateToothTypes: true,
 };
 
 // ---------------------------------------------------------------- overlay art
@@ -120,7 +121,7 @@ function resizeCanvas() {
   ar3d.setMirrored(mirror);
 }
 
-function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
+function drawFrame(landmarkList, mouth, toothTracks, toothStats, classifiedTeeth = null) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const { width: w, height: h } = canvas;
 
@@ -143,7 +144,7 @@ function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
   // Step 3 — drawn last so tooth contours are never painted over.
   debugRenderer.drawROI(teeth.roi, anchor);
   if (state.showTeeth && toothTracks?.length) {
-    toothRenderer.render(toothTracks, anchor, teeth.selectedId);
+    toothRenderer.render(toothTracks, anchor, teeth.selectedId, state.segregateToothTypes ? classifiedTeeth : null);
   }
   debugRenderer.drawSegmenterView(
     teeth.lastRoiImage, teeth.debugData, toothTracks, teeth.roi, w, h);
@@ -194,8 +195,13 @@ function processFrame(nowMs) {
     irisScaler.update(landmarkList, width, height);
   }
 
+  const dentalModel = hud.getDentalReferenceModel();
+  const classifiedTeeth = (dentalModel && toothResult.tracks.length)
+    ? dentalModel.classifyAllTracks(toothResult.tracks)
+    : null;
+
   const fps = camera.tick(nowMs);
-  drawFrame(landmarkList, mouth, toothResult.tracks, toothResult.stats);
+  drawFrame(landmarkList, mouth, toothResult.tracks, toothResult.stats, classifiedTeeth);
 
   // Compute estimated tooth dimensions in mm for each visible track.
   let toothSizesMm = null;
@@ -211,23 +217,10 @@ function processFrame(nowMs) {
       return { id: t.id, jaw: t.arch, wMm: wPx / ppm, hMm: hPx / ppm };
     });
 
-    // Live error: compare against clinician-entered patient dimensions.
-    // patientDims is { widthMm, heightMm } if the clinician has filled in the
-    // form; null otherwise. No population average is ever used as a substitute.
-    const patientDims = hud.getPatientDims();
-    if (patientDims && toothSizesMm.length) {
-      const wErrs = toothSizesMm.map((t) => Math.abs(t.wMm - patientDims.widthMm));
-      const hErrs = toothSizesMm.map((t) => Math.abs(t.hMm - patientDims.heightMm));
-      const mean  = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
-      toothDimError = {
-        widthMAE:      mean(wErrs),
-        heightMAE:     mean(hErrs),
-        widthMAPE:     mean(wErrs.map((e) => e / patientDims.widthMm)),
-        heightMAPE:    mean(hErrs.map((e) => e / patientDims.heightMm)),
-        refWidthMm:    patientDims.widthMm,
-        refHeightMm:   patientDims.heightMm,
-        n: toothSizesMm.length,
-      };
+    // Particular error calculation:
+    // Compares each detected tooth against its segregated tooth type reference in the 32-tooth model.
+    if (dentalModel && classifiedTeeth && toothSizesMm.length) {
+      toothDimError = dentalModel.computeParticularErrors(classifiedTeeth, toothSizesMm);
     }
   }
 
@@ -416,6 +409,7 @@ bind('contoursToggle', (e) => toothRenderer.setShow({ contours: e.target.checked
 bind('toothIdsToggle', (e) => toothRenderer.setShow({ ids: e.target.checked }));
 bind('confToggle', (e) => toothRenderer.setShow({ confidence: e.target.checked }));
 bind('boxesToggle', (e) => toothRenderer.setShow({ boxes: e.target.checked }));
+bind('segregateBoxesToggle', (e) => { state.segregateToothTypes = e.target.checked; });
 bind('roiToggle', (e) => debugRenderer.setShow({ roi: e.target.checked }));
 bind('rectifiedToggle', (e) => debugRenderer.setShow({ rectified: e.target.checked }));
 bind('toothSmoothingSelect', (e) => teeth.setSmoothing(e.target.value));

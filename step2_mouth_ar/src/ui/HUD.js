@@ -6,8 +6,13 @@
  * any DOM present.
  */
 
+import { DentalReferenceModel, DEFAULT_HALF_ARCH, TOOTH_TYPES } from '../core/DentalReferenceModel.js';
+
 export class HUD {
   constructor(root = document) {
+    this.root = root;
+    this.dentalModel = new DentalReferenceModel();
+
     this.el = {
       faceStatus: root.getElementById('faceStatus'),
       mouthStatus: root.getElementById('mouthStatus'),
@@ -57,13 +62,84 @@ export class HUD {
       scalePxMm: root.getElementById('scalePxMmValue'),
       toothWidthMm: root.getElementById('toothWidthMmValue'),
       toothHeightMm: root.getElementById('toothHeightMmValue'),
-      // --- live dimension error vs anatomical prior ---
+      // --- live particular dimension error ---
       dimErrWidth:  root.getElementById('dimErrWidthValue'),
       dimErrHeight: root.getElementById('dimErrHeightValue'),
       dimMapeWidth:  root.getElementById('dimMapeWidthValue'),
       dimMapeHeight: root.getElementById('dimMapeHeightValue'),
+      particularRows: root.getElementById('particularErrorRows'),
     };
     this._fpsSamples = [];
+    this._initDentalArchInputs();
+  }
+
+  _initDentalArchInputs() {
+    const root = this.root;
+    const tabUpper = root.getElementById('tabUpperArch');
+    const tabLower = root.getElementById('tabLowerArch');
+    const upperCont = root.getElementById('upperArchContainer');
+    const lowerCont = root.getElementById('lowerArchContainer');
+
+    tabUpper?.addEventListener('click', () => {
+      tabUpper.classList.add('active');
+      tabLower?.classList.remove('active');
+      if (upperCont) upperCont.hidden = false;
+      if (lowerCont) lowerCont.hidden = true;
+    });
+
+    tabLower?.addEventListener('click', () => {
+      tabLower.classList.add('active');
+      tabUpper?.classList.remove('active');
+      if (lowerCont) lowerCont.hidden = false;
+      if (upperCont) upperCont.hidden = true;
+    });
+
+    const readInputs = () => {
+      const readVal = (id, fallback) => {
+        const el = root.getElementById(id);
+        const v = parseFloat(el?.value);
+        return Number.isFinite(v) && v > 0 ? v : fallback;
+      };
+
+      const dims = { upper: {}, lower: {} };
+      TOOTH_TYPES.forEach((t) => {
+        dims.upper[t.key] = {
+          width:  readVal(`dim_upper_${t.key}_w`, DEFAULT_HALF_ARCH.upper[t.key].width),
+          height: readVal(`dim_upper_${t.key}_h`, DEFAULT_HALF_ARCH.upper[t.key].height),
+        };
+        dims.lower[t.key] = {
+          width:  readVal(`dim_lower_${t.key}_w`, DEFAULT_HALF_ARCH.lower[t.key].width),
+          height: readVal(`dim_lower_${t.key}_h`, DEFAULT_HALF_ARCH.lower[t.key].height),
+        };
+      });
+
+      this.dentalModel.setDimensions(dims);
+    };
+
+    // Attach input listeners
+    TOOTH_TYPES.forEach((t) => {
+      ['upper', 'lower'].forEach((arch) => {
+        ['w', 'h'].forEach((dim) => {
+          const el = root.getElementById(`dim_${arch}_${t.key}_${dim}`);
+          el?.addEventListener('input', readInputs);
+        });
+      });
+    });
+
+    // Reset Defaults button
+    root.getElementById('resetArchDefaultsBtn')?.addEventListener('click', () => {
+      this.dentalModel.resetDefaults();
+      TOOTH_TYPES.forEach((t) => {
+        const uW = root.getElementById(`dim_upper_${t.key}_w`);
+        const uH = root.getElementById(`dim_upper_${t.key}_h`);
+        const lW = root.getElementById(`dim_lower_${t.key}_w`);
+        const lH = root.getElementById(`dim_lower_${t.key}_h`);
+        if (uW) uW.value = DEFAULT_HALF_ARCH.upper[t.key].width;
+        if (uH) uH.value = DEFAULT_HALF_ARCH.upper[t.key].height;
+        if (lW) lW.value = DEFAULT_HALF_ARCH.lower[t.key].width;
+        if (lH) lH.value = DEFAULT_HALF_ARCH.lower[t.key].height;
+      });
+    });
   }
 
   setSelectedTooth(track) {
@@ -225,15 +301,8 @@ export class HUD {
    * or null if the clinician hasn't filled both fields yet.
    * Values must be positive numbers to be accepted.
    */
-  getPatientDims() {
-    const wEl = document.getElementById('patientWidthMm');
-    const hEl = document.getElementById('patientHeightMm');
-    const w = parseFloat(wEl?.value);
-    const h = parseFloat(hEl?.value);
-    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-      return { widthMm: w, heightMm: h };
-    }
-    return null;
+  getDentalReferenceModel() {
+    return this.dentalModel;
   }
 
   /** Persistent (not cleared by setBanner) — a fallback must never go unnoticed. */
@@ -248,8 +317,9 @@ export class HUD {
    * Scale reference and estimated tooth sizes in mm.
    * scaleInfo comes from IrisScaler.info(); toothSizesMm is the per-track
    * array computed in main.js from bbox corners projected through the anchor.
+   * particularError comes from DentalReferenceModel.computeParticularErrors().
    */
-  setScaleInfo(scaleInfo, toothSizesMm, toothDimError) {
+  setScaleInfo(scaleInfo, toothSizesMm, particularError) {
     const set = (el, v) => { if (el) el.textContent = v; };
     const pct = (v) => `${(v * 100).toFixed(1)}%`;
 
@@ -276,17 +346,36 @@ export class HUD {
       set(this.el.toothHeightMm, '—');
     }
 
-    // Dimension error vs patient-entered reference (clinician input form).
-    if (toothDimError) {
-      set(this.el.dimErrWidth,   `${toothDimError.widthMAE.toFixed(1)} mm  (ref ${toothDimError.refWidthMm} mm)`);
-      set(this.el.dimErrHeight,  `${toothDimError.heightMAE.toFixed(1)} mm  (ref ${toothDimError.refHeightMm} mm)`);
-      set(this.el.dimMapeWidth,  pct(toothDimError.widthMAPE));
-      set(this.el.dimMapeHeight, pct(toothDimError.heightMAPE));
+    // Particular tooth error metrics
+    if (particularError && particularError.overall) {
+      set(this.el.dimErrWidth,   `${particularError.overall.widthMAE.toFixed(2)} mm (MAE)`);
+      set(this.el.dimErrHeight,  `${particularError.overall.heightMAE.toFixed(2)} mm (MAE)`);
+      set(this.el.dimMapeWidth,  pct(particularError.overall.widthMAPE));
+      set(this.el.dimMapeHeight, pct(particularError.overall.heightMAPE));
     } else {
-      set(this.el.dimErrWidth,  'enter patient dims below');
-      set(this.el.dimErrHeight, 'enter patient dims below');
+      set(this.el.dimErrWidth,  '—');
+      set(this.el.dimErrHeight, '—');
       set(this.el.dimMapeWidth,  '—');
       set(this.el.dimMapeHeight, '—');
+    }
+
+    // Populate per-tooth live error breakdown table
+    if (this.el.particularRows) {
+      if (particularError?.teeth && particularError.teeth.length) {
+        const rowsHtml = particularError.teeth.map((t) => {
+          const wSign = t.measuredW >= t.refW ? '+' : '-';
+          const hSign = t.measuredH >= t.refH ? '+' : '-';
+          return `<tr>
+            <td><span class="tooth-type-tag tooth-type-tag--${t.group}">${t.label} (T${t.id})</span></td>
+            <td>${t.measuredW.toFixed(1)} × ${t.measuredH.toFixed(1)} mm</td>
+            <td>${t.refW.toFixed(1)} × ${t.refH.toFixed(1)} mm</td>
+            <td>${wSign}${t.wAbs.toFixed(1)} / ${hSign}${t.hAbs.toFixed(1)} mm (${(t.wRel * 100).toFixed(0)}%)</td>
+          </tr>`;
+        }).join('');
+        this.el.particularRows.innerHTML = rowsHtml;
+      } else {
+        this.el.particularRows.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:8px">No teeth detected yet</td></tr>';
+      }
     }
   }
 

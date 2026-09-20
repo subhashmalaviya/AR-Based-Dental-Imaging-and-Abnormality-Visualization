@@ -21,7 +21,7 @@ export class ToothOverlayRenderer {
       contours: true,
       ids: true,
       confidence: true,
-      boxes: false,
+      boxes: true,
       centers: true,
     };
     this.mirrored = false;
@@ -35,14 +35,23 @@ export class ToothOverlayRenderer {
    * @param {ToothTrack[]} tracks
    * @param {MouthARAnchor} anchor
    * @param {number|null} selectedId
+   * @param {Array<object>|Map<number, object>|null} [classifications] Tooth-type classifications
    */
-  render(tracks, anchor, selectedId = null) {
+  render(tracks, anchor, selectedId = null, classifications = null) {
     if (!anchor?.isValid() || !tracks?.length) return;
     const ctx = this.ctx;
 
+    let classMap = null;
+    if (classifications instanceof Map) {
+      classMap = classifications;
+    } else if (Array.isArray(classifications)) {
+      classMap = new Map(classifications.map((c) => [c.id, c]));
+    }
+
     for (const t of tracks) {
       const s = t.smoothed ?? t;
-      const color = colorFor(t.id);
+      const cls = classMap?.get(t.id);
+      const color = cls?.color ?? colorFor(t.id);
       const selected = t.id === selectedId;
 
       const pts = (s.contour ?? [])
@@ -73,15 +82,50 @@ export class ToothOverlayRenderer {
           { x: b.u, y: b.v }, { x: b.u + b.w, y: b.v },
           { x: b.u + b.w, y: b.v + b.h }, { x: b.u, y: b.v + b.h },
         ].map((p) => anchor.localToScreen({ x: p.x, y: p.y, z: 0 }));
+
         ctx.beginPath();
         ctx.moveTo(corners[0].x, corners[0].y);
         for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
         ctx.closePath();
-        ctx.setLineDash([5, 4]);
-        ctx.strokeStyle = `${color}cc`;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = `${color}88`;
         ctx.lineWidth = 1.2;
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Precision corner brackets for segregated tooth bounding box
+        const dX = (corners[1].x - corners[0].x) * 0.28;
+        const dY = (corners[3].y - corners[0].y) * 0.28;
+        ctx.lineWidth = 2.4;
+        ctx.strokeStyle = color;
+
+        // Top-left bracket
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y + dY);
+        ctx.lineTo(corners[0].x, corners[0].y);
+        ctx.lineTo(corners[0].x + dX, corners[0].y);
+        ctx.stroke();
+
+        // Top-right bracket
+        ctx.beginPath();
+        ctx.moveTo(corners[1].x - dX, corners[1].y);
+        ctx.lineTo(corners[1].x, corners[1].y);
+        ctx.lineTo(corners[1].x, corners[1].y + dY);
+        ctx.stroke();
+
+        // Bottom-right bracket
+        ctx.beginPath();
+        ctx.moveTo(corners[2].x, corners[2].y - dY);
+        ctx.lineTo(corners[2].x, corners[2].y);
+        ctx.lineTo(corners[2].x - dX, corners[2].y);
+        ctx.stroke();
+
+        // Bottom-left bracket
+        ctx.beginPath();
+        ctx.moveTo(corners[3].x + dX, corners[3].y);
+        ctx.lineTo(corners[3].x, corners[3].y);
+        ctx.lineTo(corners[3].x, corners[3].y - dY);
+        ctx.stroke();
       }
 
       const c = anchor.localToScreen({ x: s.center.u, y: s.center.v, z: 0 });
@@ -96,16 +140,13 @@ export class ToothOverlayRenderer {
     }
 
     // Labels are drawn in a second pass, after every contour, so no contour
-    // can paint over a label. They are also *staggered* into rows: at a normal
-    // camera distance the mouth is only ~100 px wide, so per-tooth labels at a
-    // fixed offset collapse into an unreadable pile (which is exactly what
-    // made the live overlay look like it had detected nothing).
-    if (this.show.ids || this.show.confidence) {
-      this._drawLabels(tracks, anchor, selectedId);
+    // can paint over a label.
+    if (this.show.ids || this.show.confidence || classMap) {
+      this._drawLabels(tracks, anchor, selectedId, classMap);
     }
   }
 
-  _drawLabels(tracks, anchor, selectedId) {
+  _drawLabels(tracks, anchor, selectedId, classMap = null) {
     const ctx = this.ctx;
     ctx.save();
     ctx.font = '600 11px system-ui, sans-serif';
@@ -121,11 +162,17 @@ export class ToothOverlayRenderer {
     ordered.forEach((t, i) => {
       const s = t.smoothed ?? t;
       const selected = t.id === selectedId;
+      const cls = classMap?.get(t.id);
+      const color = cls?.color ?? colorFor(t.id);
       const c = anchor.localToScreen({ x: s.center.u, y: s.center.v, z: 0 });
       if (!c) return;
 
       const parts = [];
-      if (this.show.ids) parts.push(`T${t.id}`);
+      if (cls?.label) {
+        parts.push(this.show.ids ? `${cls.label} (T${t.id})` : cls.label);
+      } else if (this.show.ids) {
+        parts.push(`T${t.id}`);
+      }
       if (this.show.confidence) parts.push(s.confidence.toFixed(2));
       const label = parts.join(' ');
 
@@ -140,30 +187,25 @@ export class ToothOverlayRenderer {
 
       // leader line back to the tooth, so a staggered label is unambiguous
       ctx.beginPath();
-      ctx.strokeStyle = selected ? 'rgba(255,255,255,0.9)' : `${colorFor(t.id)}99`;
+      ctx.strokeStyle = selected ? 'rgba(255,255,255,0.9)' : `${color}99`;
       ctx.lineWidth = 1;
       ctx.moveTo(c.x, c.y);
       ctx.lineTo(lx, ly);
       ctx.stroke();
 
-      const w = ctx.measureText(label).width + 8;
-      // Confidence is colour-coded: a weak detection should *look* weak rather
-      // than being presented with the same authority as a strong one.
-      const fg = selected ? '#ffffff'
-        : (s.confidence >= 0.6 ? colorFor(t.id)
-          : s.confidence >= 0.35 ? '#ffd166' : '#ff8a8a');
+      const w = ctx.measureText(label).width + 10;
+      const fg = selected ? '#ffffff' : color;
 
-      // The label's *position* must stay in the mirrored face space, but its
-      // glyphs must not be mirrored, so the flip is undone locally about the
-      // label's own origin. Without this every ID reads backwards on the front
-      // camera, which is most of why the overlay looked like noise.
       ctx.save();
       ctx.translate(lx, ly);
       if (this.mirrored) ctx.scale(-1, 1);
-      ctx.fillStyle = 'rgba(6,10,16,0.82)';
+      ctx.fillStyle = 'rgba(6,10,16,0.85)';
       ctx.beginPath();
-      ctx.roundRect(-w / 2, -8, w, 16, 5);
+      ctx.roundRect(-w / 2, -9, w, 18, 5);
       ctx.fill();
+      ctx.strokeStyle = `${color}88`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.fillStyle = fg;
       ctx.fillText(label, 0, 0);
       ctx.restore();

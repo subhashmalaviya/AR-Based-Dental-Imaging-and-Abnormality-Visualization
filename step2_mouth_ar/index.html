@@ -73,37 +73,163 @@
           <div><dt>Scale reference</dt><dd id="scaleSourceValue">—</dd></div>
           <div><dt>Mean tooth width</dt><dd id="toothWidthMmValue">—</dd></div>
           <div><dt>Mean tooth height</dt><dd id="toothHeightMmValue">—</dd></div>
-          <div><dt>Width error (vs patient)</dt><dd id="dimErrWidthValue">—</dd></div>
-          <div><dt>Width error %</dt><dd id="dimMapeWidthValue">—</dd></div>
-          <div><dt>Height error (vs patient)</dt><dd id="dimErrHeightValue">—</dd></div>
-          <div><dt>Height error %</dt><dd id="dimMapeHeightValue">—</dd></div>
+          <div><dt>Overall width MAE</dt><dd id="dimErrWidthValue">—</dd></div>
+          <div><dt>Overall width MAPE</dt><dd id="dimMapeWidthValue">—</dd></div>
+          <div><dt>Overall height MAE</dt><dd id="dimErrHeightValue">—</dd></div>
+          <div><dt>Overall height MAPE</dt><dd id="dimMapeHeightValue">—</dd></div>
         </dl>
-        <div class="patient-dims">
-          <p style="font-size:12px;color:var(--muted);margin:6px 0 4px">Patient reference dimensions (from dental records / X-ray):</p>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:12px;display:flex;align-items:center;gap:4px">
-              Tooth width
-              <input type="number" id="patientWidthMm" placeholder="e.g. 8.5" min="1" max="30" step="0.1"
-                style="width:80px;font-size:12px" />
-              mm
-            </label>
-            <label style="font-size:12px;display:flex;align-items:center;gap:4px">
-              Tooth height
-              <input type="number" id="patientHeightMm" placeholder="e.g. 10.5" min="1" max="30" step="0.1"
-                style="width:80px;font-size:12px" />
-              mm
-            </label>
-          </div>
-          <p style="font-size:11px;color:var(--muted);margin:4px 0 0">Enter the patient's <em>actual</em> tooth dimensions from records. Error rows above activate once both fields are filled.</p>
+
+        <div class="particular-breakdown" id="particularBreakdownBox">
+          <table class="particular-table">
+            <thead>
+              <tr>
+                <th>Tooth</th>
+                <th>Measured (W×H)</th>
+                <th>Reference (W×H)</th>
+                <th>Error (W / H)</th>
+              </tr>
+            </thead>
+            <tbody id="particularErrorRows">
+              <tr><td colspan="4" style="color:var(--muted);text-align:center;padding:8px">No teeth detected yet</td></tr>
+            </tbody>
+          </table>
         </div>
+
+        <div class="arch-card">
+          <h3 style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--text)">Dental Arch Reference Dimensions (32-Tooth Model)</h3>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+            Enter dimensions for one half-arch. Bilateral symmetry automatically models all 32 teeth across all 4 quadrants (FDI notation).
+          </p>
+
+          <div class="arch-tabs">
+            <button id="tabUpperArch" class="arch-tab-btn active" type="button">Upper Half-Arch (8)</button>
+            <button id="tabLowerArch" class="arch-tab-btn" type="button">Lower Half-Arch (8)</button>
+          </div>
+
+          <!-- Upper Jaw Half-Arch Table -->
+          <div id="upperArchContainer">
+            <table class="arch-table">
+              <thead>
+                <tr>
+                  <th>Tooth Type</th>
+                  <th>Width (mm)</th>
+                  <th>Height (mm)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--incisor">CI</span> Central Incisor</td>
+                  <td><input type="number" id="dim_upper_CI_w" value="8.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_CI_h" value="10.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--incisor">LI</span> Lateral Incisor</td>
+                  <td><input type="number" id="dim_upper_LI_w" value="6.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_LI_h" value="9.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--canine">C</span> Canine</td>
+                  <td><input type="number" id="dim_upper_C_w" value="7.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_C_h" value="10.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--premolar">PM1</span> 1st Premolar</td>
+                  <td><input type="number" id="dim_upper_PM1_w" value="7.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_PM1_h" value="8.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--premolar">PM2</span> 2nd Premolar</td>
+                  <td><input type="number" id="dim_upper_PM2_w" value="6.8" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_PM2_h" value="8.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M1</span> 1st Molar</td>
+                  <td><input type="number" id="dim_upper_M1_w" value="10.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_M1_h" value="7.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M2</span> 2nd Molar</td>
+                  <td><input type="number" id="dim_upper_M2_w" value="9.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_M2_h" value="7.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M3</span> 3rd Molar</td>
+                  <td><input type="number" id="dim_upper_M3_w" value="8.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_upper_M3_h" value="6.5" step="0.1" min="1" max="25"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Lower Jaw Half-Arch Table -->
+          <div id="lowerArchContainer" hidden>
+            <table class="arch-table">
+              <thead>
+                <tr>
+                  <th>Tooth Type</th>
+                  <th>Width (mm)</th>
+                  <th>Height (mm)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--incisor">CI</span> Central Incisor</td>
+                  <td><input type="number" id="dim_lower_CI_w" value="5.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_CI_h" value="9.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--incisor">LI</span> Lateral Incisor</td>
+                  <td><input type="number" id="dim_lower_LI_w" value="5.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_LI_h" value="9.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--canine">C</span> Canine</td>
+                  <td><input type="number" id="dim_lower_C_w" value="7.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_C_h" value="10.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--premolar">PM1</span> 1st Premolar</td>
+                  <td><input type="number" id="dim_lower_PM1_w" value="7.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_PM1_h" value="8.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--premolar">PM2</span> 2nd Premolar</td>
+                  <td><input type="number" id="dim_lower_PM2_w" value="7.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_PM2_h" value="8.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M1</span> 1st Molar</td>
+                  <td><input type="number" id="dim_lower_M1_w" value="10.5" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_M1_h" value="7.5" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M2</span> 2nd Molar</td>
+                  <td><input type="number" id="dim_lower_M2_w" value="10.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_M2_h" value="7.0" step="0.1" min="1" max="25"></td>
+                </tr>
+                <tr>
+                  <td><span class="tooth-type-tag tooth-type-tag--molar">M3</span> 3rd Molar</td>
+                  <td><input type="number" id="dim_lower_M3_w" value="9.0" step="0.1" min="1" max="25"></td>
+                  <td><input type="number" id="dim_lower_M3_h" value="6.5" step="0.1" min="1" max="25"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <button id="resetArchDefaultsBtn" class="btn" style="font-size:11px;padding:4px 8px" type="button">Reset Defaults (Wheeler)</button>
+            <span style="font-size:11px;color:var(--muted)">Auto-saved to 32-Tooth Model</span>
+          </div>
+        </div>
+
         <div class="buttons buttons--wrap">
           <button id="resetTrackingBtn" class="btn">Reset Tracking</button>
           <button id="captureGtBtn" class="btn">Capture frame for ground truth</button>
         </div>
         <p class="hint">
           Scale is estimated from iris diameter (primary) or mouth width (fallback).
-          Tooth sizes are mean estimates across all visible teeth — indicative only,
-          not clinical measurements. Accuracy metrics are in the
+          Tooth sizes are evaluated against particular tooth type references in the 32-tooth model.
+          Accuracy benchmarks are in the
           <a href="./eval.html" target="_blank" rel="noopener">evaluation tool</a>.
         </p>
       </section>
@@ -162,7 +288,8 @@
         <label class="row"><input type="checkbox" id="contoursToggle" checked /><span>Tooth contours</span></label>
         <label class="row"><input type="checkbox" id="toothIdsToggle" checked /><span>Tooth IDs</span></label>
         <label class="row"><input type="checkbox" id="confToggle" checked /><span>Confidence</span></label>
-        <label class="row"><input type="checkbox" id="boxesToggle" /><span>Bounding boxes</span></label>
+        <label class="row"><input type="checkbox" id="boxesToggle" checked /><span>Bounding boxes</span></label>
+        <label class="row"><input type="checkbox" id="segregateBoxesToggle" checked /><span>Segregate bounding boxes by tooth type</span></label>
         <label class="row"><input type="checkbox" id="roiToggle" /><span>Mouth ROI</span></label>
         <label class="row"><input type="checkbox" id="rectifiedToggle" /><span>Segmenter view (rectified ROI + masks)</span></label>
         <label class="row"><input type="checkbox" id="statsToggle" /><span>Detection stats panel</span></label>
