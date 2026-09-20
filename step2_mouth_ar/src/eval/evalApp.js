@@ -11,6 +11,7 @@
  * it is drawn flipped back here to line up with the metadata.
  */
 import { evaluateFrame, aggregate } from './metrics.js';
+import { MOUTH_WIDTH_MM } from '../core/IrisScaler.js';
 import { saveBlob } from '../core/SessionRecorder.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +35,10 @@ const S = {
   drag: null,
   history: [],
   sourceName: '',
+  // Pixel-to-mm scale for dimension error conversion.
+  // Derived automatically from annotated frames (mouth arch span / 50 mm)
+  // and overridable via a manual input. null = not yet computed.
+  pixelsPerMm: null,
 };
 
 function banner(msg, kind = 'info') {
@@ -292,6 +297,47 @@ function renderAgg() {
   }
   const s = aggregate(res);
   if (!s) { $('evAggTable').innerHTML = rows([['annotated frames', '<span class="metric-na">none yet</span>']]); return; }
+
+  // ---- Pixel-to-mm scale ------------------------------------------------
+  // Auto: estimate from the span of all tooth bboxes in annotated frames
+  // (the visible arch width is ~50 mm). Override wins if set by the user.
+  const manualEl = $('evPxPerMm');
+  const manualVal = manualEl ? parseFloat(manualEl.value) : NaN;
+  if (Number.isFinite(manualVal) && manualVal > 0) {
+    S.pixelsPerMm = manualVal;
+  } else {
+    // Estimate from recorded bbox spans in annotated frames.
+    const spans = [];
+    for (const [k, g] of Object.entries(S.gt)) {
+      if (!g.teeth?.length) continue;
+      const f = S.frames[Number(k)];
+      if (!f?.teeth?.length) continue;
+      const xs = f.teeth.flatMap((t) => t.bbox ? [t.bbox[0], t.bbox[0] + t.bbox[2]] : []);
+      if (xs.length >= 2) {
+        spans.push(Math.max(...xs) - Math.min(...xs));
+      }
+    }
+    if (spans.length) {
+      const meanSpan = spans.reduce((a, b) => a + b, 0) / spans.length;
+      // visible arch span is roughly the full inter-commissure width; use
+      // MOUTH_WIDTH_MM (50 mm) as the reference.
+      S.pixelsPerMm = meanSpan / MOUTH_WIDTH_MM;
+    }
+  }
+
+  const pxPerMm = S.pixelsPerMm;
+  const scaleUnit = pxPerMm ? 'mm' : 'px';
+  const dimFmt = (v) => {
+    if (v == null) return '<span class="metric-na">n/a</span>';
+    if (pxPerMm) return `${(v / pxPerMm).toFixed(2)} mm  <span class="metric-dim">(${v.toFixed(1)} px)</span>`;
+    return `${v.toFixed(1)} px`;
+  };
+  const scaleNote = pxPerMm
+    ? (manualEl && Number.isFinite(manualVal) && manualVal > 0
+        ? `manual: ${manualVal.toFixed(2)} px/mm`
+        : `auto (arch span / ${MOUTH_WIDTH_MM} mm): ${pxPerMm.toFixed(2)} px/mm`)
+    : 'not estimated — enter px/mm above or ensure teeth bboxes are present';
+
   $('evAggTable').innerHTML = rows([
     ['annotated frames', s.frames], ['GT teeth', s.gtTeeth], ['detections', s.detections],
     ['precision', pct(s.precision)], ['recall (detection rate)', pct(s.recall)], ['F1', pct(s.f1)],
@@ -299,6 +345,15 @@ function renderAgg() {
     ['count MAE', s.countMAE.toFixed(2)], ['exact-count frames', pct(s.exactCountRate)],
     ['mean IoU (box GT)', s.meanIoU == null ? '<span class="metric-na">n/a</span>' : s.meanIoU.toFixed(3)],
     ['jaw accuracy', pct(s.jawAccuracy)],
+    // ---- dimension error metrics ----------------------------------------
+    ['— scale reference —', `<span class="metric-dim">${scaleNote}</span>`],
+    ['dim. pairs (TP w/ boxes)', s.dimPairs > 0 ? String(s.dimPairs) : '<span class="metric-na">0 — annotate using box mode</span>'],
+    ['width MAE', dimFmt(s.widthMAE)],
+    ['width MAPE', pct(s.widthMAPE)],
+    ['height MAE', dimFmt(s.heightMAE)],
+    ['height MAPE', pct(s.heightMAPE)],
+    ['aspect-ratio MAE', s.aspectRatioMAE != null ? s.aspectRatioMAE.toFixed(3) : '<span class="metric-na">n/a</span>'],
+    ['centroid offset MAE', dimFmt(s.centroidMAE)],
   ]);
   S.lastSummary = s;
 }
@@ -428,6 +483,8 @@ for (const id of ['evZoom', 'evShowDets', 'evClearOnly']) {
   $(id).addEventListener('change', () => { S.view = computeView(); update(); });
 }
 $('evOffset').addEventListener('change', () => showFrame(S.idx));
+// Re-render the agg table whenever the manual scale changes so mm values update live.
+$('evPxPerMm')?.addEventListener('input', () => renderAgg());
 
 const wrap = (fn) => async (e) => {
   const f = e.target.files?.[0];

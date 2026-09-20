@@ -70,17 +70,41 @@
           <div><dt>Lighting (mouth brightness)</dt><dd id="evalLightValue">—</dd></div>
           <div><dt>Recording</dt><dd id="evalRecValue">OFF</dd></div>
           <div><dt>Duration</dt><dd id="evalDurValue">00:00</dd></div>
+          <div><dt>Scale reference</dt><dd id="scaleSourceValue">—</dd></div>
+          <div><dt>Mean tooth width</dt><dd id="toothWidthMmValue">—</dd></div>
+          <div><dt>Mean tooth height</dt><dd id="toothHeightMmValue">—</dd></div>
+          <div><dt>Width error (vs patient)</dt><dd id="dimErrWidthValue">—</dd></div>
+          <div><dt>Width error %</dt><dd id="dimMapeWidthValue">—</dd></div>
+          <div><dt>Height error (vs patient)</dt><dd id="dimErrHeightValue">—</dd></div>
+          <div><dt>Height error %</dt><dd id="dimMapeHeightValue">—</dd></div>
         </dl>
+        <div class="patient-dims">
+          <p style="font-size:12px;color:var(--muted);margin:6px 0 4px">Patient reference dimensions (from dental records / X-ray):</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+              Tooth width
+              <input type="number" id="patientWidthMm" placeholder="e.g. 8.5" min="1" max="30" step="0.1"
+                style="width:80px;font-size:12px" />
+              mm
+            </label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+              Tooth height
+              <input type="number" id="patientHeightMm" placeholder="e.g. 10.5" min="1" max="30" step="0.1"
+                style="width:80px;font-size:12px" />
+              mm
+            </label>
+          </div>
+          <p style="font-size:11px;color:var(--muted);margin:4px 0 0">Enter the patient's <em>actual</em> tooth dimensions from records. Error rows above activate once both fields are filled.</p>
+        </div>
         <div class="buttons buttons--wrap">
           <button id="resetTrackingBtn" class="btn">Reset Tracking</button>
           <button id="captureGtBtn" class="btn">Capture frame for ground truth</button>
         </div>
         <p class="hint">
-          Accuracy metrics (precision / recall / F1 / IoU) are only shown where
-          they were computed from manually annotated frames — open the
-          <a href="./eval.html" target="_blank" rel="noopener">evaluation tool</a>
-          with a recording and its JSON. Stability is measured live from
-          tooth-ID continuity between frames.
+          Scale is estimated from iris diameter (primary) or mouth width (fallback).
+          Tooth sizes are mean estimates across all visible teeth — indicative only,
+          not clinical measurements. Accuracy metrics are in the
+          <a href="./eval.html" target="_blank" rel="noopener">evaluation tool</a>.
         </p>
       </section>
 
@@ -221,6 +245,7 @@
       <section class="panel__block">
         <h2 class="panel__heading">Display</h2>
         <label class="row"><input type="checkbox" id="landmarksToggle" checked /><span>Show landmarks &amp; anchor</span></label>
+        <label class="row"><input type="checkbox" id="irisToggle" checked /><span>Show Iris scale box &amp; ruler</span></label>
         <label class="row"><input type="checkbox" id="meshToggle" /><span>Show full face mesh</span></label>
         <label class="row"><input type="checkbox" id="overlayToggle" /><span>Show AR overlay <em>(Step-2 logo demo; covers the teeth)</em></span></label>
       </section>

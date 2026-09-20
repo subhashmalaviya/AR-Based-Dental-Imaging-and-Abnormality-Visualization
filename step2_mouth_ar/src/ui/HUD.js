@@ -52,6 +52,16 @@ export class HUD {
       evalDur: root.getElementById('evalDurValue'),
       recIndicator: root.getElementById('recIndicator'),
       recTimer: root.getElementById('recTimer'),
+      // --- scale / size readout ---
+      scaleSource: root.getElementById('scaleSourceValue'),
+      scalePxMm: root.getElementById('scalePxMmValue'),
+      toothWidthMm: root.getElementById('toothWidthMmValue'),
+      toothHeightMm: root.getElementById('toothHeightMmValue'),
+      // --- live dimension error vs anatomical prior ---
+      dimErrWidth:  root.getElementById('dimErrWidthValue'),
+      dimErrHeight: root.getElementById('dimErrHeightValue'),
+      dimMapeWidth:  root.getElementById('dimMapeWidthValue'),
+      dimMapeHeight: root.getElementById('dimMapeHeightValue'),
     };
     this._fpsSamples = [];
   }
@@ -100,7 +110,8 @@ export class HUD {
   update({ faceDetected, mouthTracked, anchorValid, fps, delegate, resolution,
             pose, opening, coasting,
             teeth, toothTiming, toothReason, selectedTooth, anchors3D,
-            detectorName, detectorIsLearned, detectFps, recording }) {
+            detectorName, detectorIsLearned, detectFps, recording,
+            scaleInfo, toothSizesMm, toothDimError }) {
     this.setPill(this.el.faceStatus,
       faceDetected ? 'Face detected' : 'Face not detected',
       faceDetected ? 'ok' : 'bad');
@@ -160,6 +171,7 @@ export class HUD {
     this.setEvaluation({ teeth, toothTiming, fps, detectFps, recording });
     this.setAnchors3D(anchors3D ?? null);
     this.setSelectedTooth(selectedTooth ?? null);
+    this.setScaleInfo(scaleInfo ?? null, toothSizesMm ?? null, toothDimError ?? null);
   }
 
   /** Research / evaluation panel — every value is a live measurement. */
@@ -208,12 +220,74 @@ export class HUD {
 
   setModelInfo(text) { if (this.el.modelInfo) this.el.modelInfo.textContent = text; }
 
+  /**
+   * Returns { widthMm, heightMm } from the patient dimension input form,
+   * or null if the clinician hasn't filled both fields yet.
+   * Values must be positive numbers to be accepted.
+   */
+  getPatientDims() {
+    const wEl = document.getElementById('patientWidthMm');
+    const hEl = document.getElementById('patientHeightMm');
+    const w = parseFloat(wEl?.value);
+    const h = parseFloat(hEl?.value);
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+      return { widthMm: w, heightMm: h };
+    }
+    return null;
+  }
+
   /** Persistent (not cleared by setBanner) — a fallback must never go unnoticed. */
   setDetectorWarning(text) {
     const el = document.getElementById('detectorWarning');
     if (!el) return;
     el.hidden = !text;
     el.textContent = text ?? '';
+  }
+
+  /**
+   * Scale reference and estimated tooth sizes in mm.
+   * scaleInfo comes from IrisScaler.info(); toothSizesMm is the per-track
+   * array computed in main.js from bbox corners projected through the anchor.
+   */
+  setScaleInfo(scaleInfo, toothSizesMm, toothDimError) {
+    const set = (el, v) => { if (el) el.textContent = v; };
+    const pct = (v) => `${(v * 100).toFixed(1)}%`;
+
+    // Scale source label.
+    if (scaleInfo) {
+      const src = scaleInfo.source === 'iris'
+        ? `Iris (${scaleInfo.pixelsPerMm.toFixed(1)} px/mm)`
+        : `Mouth width (${scaleInfo.pixelsPerMm.toFixed(1)} px/mm)`;
+      set(this.el.scaleSource, src);
+      set(this.el.scalePxMm, scaleInfo.pixelsPerMm.toFixed(2));
+    } else {
+      set(this.el.scaleSource, '—');
+      set(this.el.scalePxMm, '—');
+    }
+
+    // Mean estimated tooth width / height across all visible teeth.
+    if (toothSizesMm && toothSizesMm.length) {
+      const meanW = toothSizesMm.reduce((s, t) => s + t.wMm, 0) / toothSizesMm.length;
+      const meanH = toothSizesMm.reduce((s, t) => s + t.hMm, 0) / toothSizesMm.length;
+      set(this.el.toothWidthMm,  `~${meanW.toFixed(1)} mm`);
+      set(this.el.toothHeightMm, `~${meanH.toFixed(1)} mm`);
+    } else {
+      set(this.el.toothWidthMm, '—');
+      set(this.el.toothHeightMm, '—');
+    }
+
+    // Dimension error vs patient-entered reference (clinician input form).
+    if (toothDimError) {
+      set(this.el.dimErrWidth,   `${toothDimError.widthMAE.toFixed(1)} mm  (ref ${toothDimError.refWidthMm} mm)`);
+      set(this.el.dimErrHeight,  `${toothDimError.heightMAE.toFixed(1)} mm  (ref ${toothDimError.refHeightMm} mm)`);
+      set(this.el.dimMapeWidth,  pct(toothDimError.widthMAPE));
+      set(this.el.dimMapeHeight, pct(toothDimError.heightMAPE));
+    } else {
+      set(this.el.dimErrWidth,  'enter patient dims below');
+      set(this.el.dimErrHeight, 'enter patient dims below');
+      set(this.el.dimMapeWidth,  '—');
+      set(this.el.dimMapeHeight, '—');
+    }
   }
 
   /**

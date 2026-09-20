@@ -30,6 +30,8 @@ import { AR3DRenderer } from './ui/AR3DRenderer.js';
 import { SessionRecorder, saveBlob } from './core/SessionRecorder.js';
 import { MetadataLogger } from './core/MetadataLogger.js';
 import { formatDuration } from './ui/HUD.js';
+// --- Iris/Mouth pixel-to-mm scaler -------------------------------------------
+import { IrisScaler } from './core/IrisScaler.js';
 
 const APP_VERSION = '3.5.0';
 const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
@@ -65,9 +67,15 @@ const recorder = new SessionRecorder({
 const metaLog = new MetadataLogger();
 let lastRecording = null;   // { result, doc } of the most recent recording
 
+// --- iris/mouth metric scaler ---------------------------------------------
+// Estimates pixels-per-mm from iris diameter (primary) or mouth width
+// (fallback). Updated every frame; used to display estimated tooth sizes.
+const irisScaler = new IrisScaler();
+
 const state = {
   running: false,
   showLandmarks: true,
+  showIris: true,
   showMesh: false,
   // Step-2 logo quad: off by default — it sits exactly on the teeth this
   // step is about, and would be burned into annotated recordings.
@@ -127,6 +135,9 @@ function drawFrame(landmarkList, mouth, toothTracks, toothStats) {
     if (mouth && landmarkList) landmarks.drawMouth(mouth, landmarkList, w, h);
     landmarks.drawAnchor(anchor);
   }
+  if (state.showIris && irisScaler) {
+    landmarks.drawIrisScale(irisScaler, state.mirrored);
+  }
   if (state.showOverlay && clutter) overlay.render(anchor);
 
   // Step 3 — drawn last so tooth contours are never painted over.
@@ -177,8 +188,48 @@ function processFrame(nowMs) {
     console.warn('[main] tooth pipeline error (face/mouth tracking unaffected):', err);
   }
 
+  // Update the pixel-to-mm scaler with this frame's landmarks before drawing
+  // so the visual iris bounding boxes and current scale are ready for render.
+  if (landmarkList && width && height) {
+    irisScaler.update(landmarkList, width, height);
+  }
+
   const fps = camera.tick(nowMs);
   drawFrame(landmarkList, mouth, toothResult.tracks, toothResult.stats);
+
+  // Compute estimated tooth dimensions in mm for each visible track.
+  let toothSizesMm = null;
+  let toothDimError = null;
+  if (irisScaler.isReady() && anchor.isValid() && toothResult.tracks.length) {
+    const ppm = irisScaler.pixelsPerMm;
+    toothSizesMm = toothResult.tracks.map((t) => {
+      const s = t.smoothed ?? t;
+      const tl = anchor.localToScreen({ x: s.box.u,           y: s.box.v,           z: 0 });
+      const br = anchor.localToScreen({ x: s.box.u + s.box.w, y: s.box.v + s.box.h, z: 0 });
+      const wPx = Math.abs(br.x - tl.x);
+      const hPx = Math.abs(br.y - tl.y);
+      return { id: t.id, jaw: t.arch, wMm: wPx / ppm, hMm: hPx / ppm };
+    });
+
+    // Live error: compare against clinician-entered patient dimensions.
+    // patientDims is { widthMm, heightMm } if the clinician has filled in the
+    // form; null otherwise. No population average is ever used as a substitute.
+    const patientDims = hud.getPatientDims();
+    if (patientDims && toothSizesMm.length) {
+      const wErrs = toothSizesMm.map((t) => Math.abs(t.wMm - patientDims.widthMm));
+      const hErrs = toothSizesMm.map((t) => Math.abs(t.hMm - patientDims.heightMm));
+      const mean  = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+      toothDimError = {
+        widthMAE:      mean(wErrs),
+        heightMAE:     mean(hErrs),
+        widthMAPE:     mean(wErrs.map((e) => e / patientDims.widthMm)),
+        heightMAPE:    mean(hErrs.map((e) => e / patientDims.heightMm)),
+        refWidthMm:    patientDims.widthMm,
+        refHeightMm:   patientDims.heightMm,
+        n: toothSizesMm.length,
+      };
+    }
+  }
 
   const readout = anchor.getReadout();
   hud.update({
@@ -200,6 +251,10 @@ function processFrame(nowMs) {
     opening: readout?.mouthOpen,
     detectFps: teeth.detectFps,
     recording: { on: recorder.isRecording, mode: recorder.mode, ms: recorder.elapsedMs },
+    // Iris/mouth scale info and per-tooth sizes.
+    scaleInfo: irisScaler.isReady() ? irisScaler.info() : null,
+    toothSizesMm,
+    toothDimError,
   });
   hud.setLighting(teeth.lighting);
 
@@ -317,6 +372,9 @@ document.getElementById('switchBtn').addEventListener('click', async () => {
 
 document.getElementById('landmarksToggle').addEventListener('change', (e) => {
   state.showLandmarks = e.target.checked;
+});
+document.getElementById('irisToggle')?.addEventListener('change', (e) => {
+  state.showIris = e.target.checked;
 });
 document.getElementById('meshToggle').addEventListener('change', (e) => {
   state.showMesh = e.target.checked;

@@ -21,6 +21,7 @@
     .seg button.on { background: var(--accent); color: #04222f; }
     .kbd { font: 11px ui-monospace, Menlo, monospace; color: var(--muted); }
     .metric-na { color: var(--muted); font-style: italic; }
+    .metric-dim { color: var(--muted); font-size: 11px; }
     table.ev-t { width: 100%; border-collapse: collapse; font-size: 12px; }
     table.ev-t td { padding: 3px 0; border-bottom: 1px solid var(--line); }
     table.ev-t td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
@@ -86,8 +87,15 @@
       <section class="panel__block">
         <h2 class="panel__heading">Accuracy over annotated frames</h2>
         <label class="row"><input type="checkbox" id="evClearOnly" /><span>clear teeth only (partial teeth ignored)</span></label>
+        <label class="row" style="margin-top:6px;gap:6px">
+          <span style="white-space:nowrap;font-size:12px">Scale (px/mm)</span>
+          <input type="number" id="evPxPerMm" placeholder="auto" step="0.1" min="0.1"
+            style="width:80px;font-size:12px" title="Pixels per millimetre. Leave blank to auto-estimate from tooth bbox spans (arch width / 50 mm)." />
+          <span class="metric-dim">blank = auto</span>
+        </label>
         <table class="ev-t" id="evAggTable"></table>
-        <p class="hint">Computed only from the frames you annotated. With no annotations nothing is shown — no default or estimated numbers.</p>
+        <p class="hint">Computed only from the frames you annotated. With no annotations nothing is shown — no default or estimated numbers.
+          Dimension errors need <strong>box</strong> annotations. Scale converts px errors to mm.</p>
       </section>
 
       <section class="panel__block">

@@ -18,6 +18,8 @@ pip-wheel-metadata/
 # --- Node / Vite (Steps 2-3: step2_mouth_ar/) -------------------------------
 node_modules/
 dist/
+events.json
+push_events.txt
 .vite/
 npm-debug.log*
 yarn-debug.log*

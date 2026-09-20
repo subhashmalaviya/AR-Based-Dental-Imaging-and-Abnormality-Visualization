@@ -22,8 +22,19 @@
  *   jaw accuracy            upper/lower label agreement on matched teeth
  *   mean IoU                box IoU, or mask IoU where both have polygons
  *
+ * Dimension error metrics (for box-annotated GT only, computed on TP pairs):
+ *   widthMAE / heightMAE    mean |pred_dim - gt_dim| in the annotation unit
+ *   widthMAPE / heightMAPE  mean |pred_dim - gt_dim| / gt_dim  (0–1 scale)
+ *   aspectRatioMAE          mean |pred_w/pred_h - gt_w/gt_h|
+ *   centroidMAE             mean Euclidean distance between predicted and GT
+ *                           bounding-box centres, in the annotation unit
+ *
  * Coordinates are whatever pixel space the annotations were made in (frame
  * pixels or rectified-ROI pixels); detections must be in the same space.
+ *
+ * Scaling note: to convert pixel-space dimension errors to millimetres, pass
+ * the pixelsPerMm value returned by IrisScaler (see src/core/IrisScaler.js)
+ * into the formatSummary call.
  */
 import { FORBIDDEN, assign } from '../core/math/hungarian.js';
 
@@ -158,6 +169,11 @@ export function evaluateFrame(dets, gts, { iouThreshold = 0.5, ignore = [] } = {
   const detMatched = new Array(dets.length).fill(-1);
   const ious = [];
   let jawCorrect = 0, jawTotal = 0;
+
+  // Dimension error accumulators (only for box-annotated GT, TP pairs).
+  // All values are in the annotation coordinate unit (pixels or ROI pixels).
+  const dimErrors = [];   // {wAbs, hAbs, wRel, hRel, ar, centroid}
+
   for (const [gi, di] of pairs) {
     gtMatched[gi] = di;
     detMatched[di] = gi;
@@ -166,6 +182,25 @@ export function evaluateFrame(dets, gts, { iouThreshold = 0.5, ignore = [] } = {
     if (gts[gi].jaw && dets[di].jaw) {
       jawTotal++;
       if (gts[gi].jaw === dets[di].jaw) jawCorrect++;
+    }
+
+    // Dimension error: only when BOTH sides have a bounding box.
+    // Point-only GT has no meaningful size, so we skip it silently.
+    const gBox = gts[gi].box;
+    const dBox = dets[di].box;
+    if (gBox && dBox && gBox.w > 0 && gBox.h > 0) {
+      const wAbs = Math.abs(dBox.w - gBox.w);
+      const hAbs = Math.abs(dBox.h - gBox.h);
+      const wRel = wAbs / gBox.w;              // relative error (0–1)
+      const hRel = hAbs / gBox.h;
+      const arPred = dBox.w / Math.max(dBox.h, 1e-6);
+      const arGT   = gBox.w / Math.max(gBox.h, 1e-6);
+      const ar = Math.abs(arPred - arGT);
+      // Centroid offset: Euclidean distance between box centres.
+      const gcx = gBox.x + gBox.w / 2, gcy = gBox.y + gBox.h / 2;
+      const dcx = dBox.x + dBox.w / 2, dcy = dBox.y + dBox.h / 2;
+      const centroid = Math.hypot(dcx - gcx, dcy - gcy);
+      dimErrors.push({ wAbs, hAbs, wRel, hRel, ar, centroid });
     }
   }
 
@@ -218,6 +253,8 @@ export function evaluateFrame(dets, gts, { iouThreshold = 0.5, ignore = [] } = {
     ignored,
     missed: gtMatched.map((d, gi) => (d < 0 ? gi : -1)).filter((gi) => gi >= 0),
     pairs: pairs.map(([gi, di]) => ({ gt: gi, det: di, iou: scores[gi][di].iou })),
+    // Dimension errors for this frame (one entry per box-annotated TP pair).
+    dimErrors,
   };
 }
 
@@ -233,6 +270,13 @@ export function aggregate(frames) {
   const recall = tp + fn ? tp / (tp + fn) : null;
   const f1 = precision != null && recall != null && precision + recall > 0
     ? (2 * precision * recall) / (precision + recall) : null;
+
+  // Aggregate dimension errors across all frames (only box-annotated TP pairs).
+  const allDimErrors = frames.flatMap((f) => f.dimErrors ?? []);
+  const dimN = allDimErrors.length;  // number of TP box pairs, may be < tp
+  const meanOf = (key) =>
+    dimN > 0 ? allDimErrors.reduce((s, e) => s + e[key], 0) / dimN : null;
+
   return {
     frames: n,
     gtTeeth: sum('countGT'),
@@ -245,14 +289,41 @@ export function aggregate(frames) {
     countMAE: frames.reduce((s, f) => s + Math.abs(f.countDet - f.countGT), 0) / n,
     exactCountRate: frames.filter((f) => f.countDet === f.countGT).length / n,
     jawAccuracy: jawT ? sum('jawCorrect') / jawT : null,
+    // Dimension error metrics (null when no box-annotated GT was available).
+    dimPairs: dimN,             // how many TP pairs contributed
+    widthMAE: meanOf('wAbs'),   // mean |pred_w - gt_w|, annotation units
+    heightMAE: meanOf('hAbs'),  // mean |pred_h - gt_h|, annotation units
+    widthMAPE: meanOf('wRel'),  // mean relative width error  (0–1)
+    heightMAPE: meanOf('hRel'), // mean relative height error (0–1)
+    aspectRatioMAE: meanOf('ar'),      // mean |pred_w/h - gt_w/h|
+    centroidMAE: meanOf('centroid'),   // mean centroid offset, annotation units
   };
 }
 
-/** Plain-text table for console/CLI output. */
-export function formatSummary(name, s) {
+/**
+ * Plain-text table for console/CLI output.
+ *
+ * @param {string}      name           label for the summary block
+ * @param {object}      s              result of aggregate()
+ * @param {number|null} [pixelsPerMm]  pass IrisScaler.pixelsPerMm to convert
+ *                                     pixel-unit dimension errors to mm.
+ *                                     Leave null to report in annotation units.
+ */
+export function formatSummary(name, s, pixelsPerMm = null) {
   if (!s) return `${name}: not evaluated (no annotated frames)`;
   const pct = (v) => (v == null ? '  n/a' : `${(v * 100).toFixed(1)}%`);
-  return [
+
+  // Dimension error formatting: convert to mm if a scale is available.
+  const scale = pixelsPerMm != null && pixelsPerMm > 0 ? 1 / pixelsPerMm : null;
+  const unit  = scale != null ? 'mm' : 'px';
+  const dimFmt = (v) => {
+    if (v == null) return 'n/a';
+    const val = scale != null ? v * scale : v;
+    return `${val.toFixed(2)} ${unit}`;
+  };
+  const dimHasData = s.dimPairs > 0;
+
+  const lines = [
     `${name}`,
     `  frames ${s.frames}   GT teeth ${s.gtTeeth}   detections ${s.detections}`,
     `  precision ${pct(s.precision)}   recall ${pct(s.recall)}   F1 ${pct(s.f1)}`,
@@ -260,5 +331,19 @@ export function formatSummary(name, s) {
     `  count MAE ${s.countMAE.toFixed(2)}   exact-count frames ${pct(s.exactCountRate)}`
       + `   mean IoU ${s.meanIoU == null ? 'n/a' : s.meanIoU.toFixed(3)}`
       + `   jaw acc ${pct(s.jawAccuracy)}`,
-  ].join('\n');
+  ];
+
+  if (dimHasData) {
+    lines.push(
+      `  -- dimension errors (${s.dimPairs} TP box pairs) --`,
+      `  width  MAE ${dimFmt(s.widthMAE)}   MAPE ${pct(s.widthMAPE)}`,
+      `  height MAE ${dimFmt(s.heightMAE)}   MAPE ${pct(s.heightMAPE)}`,
+      `  aspect-ratio MAE ${s.aspectRatioMAE != null ? s.aspectRatioMAE.toFixed(3) : 'n/a'}`
+        + `   centroid offset MAE ${dimFmt(s.centroidMAE)}`,
+    );
+  } else {
+    lines.push('  -- dimension errors: n/a (no box-annotated GT or no TP matches) --');
+  }
+
+  return lines.join('\n');
 }

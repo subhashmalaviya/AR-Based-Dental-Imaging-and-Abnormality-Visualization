@@ -113,4 +113,150 @@ export class LandmarkRenderer {
     ctx.stroke();
     ctx.restore();
   }
+
+  /**
+   * Draw visual bounding boxes, circular reticles, and scale badges over the
+   * tracked irises (or inter-commissure mouth ruler if falling back).
+   *
+   * @param {import('../core/IrisScaler.js').IrisScaler} scaler
+   * @param {boolean} mirrored
+   */
+  drawIrisScale(scaler, mirrored = false) {
+    if (!scaler || !scaler.isReady()) return;
+    const ctx = this.ctx;
+    ctx.save();
+
+    if (scaler._source === 'iris' && scaler.irises) {
+      const list = [scaler.irises.left, scaler.irises.right].filter(Boolean);
+      list.forEach((iris, idx) => {
+        const { box, center, radius, diamPx } = iris;
+
+        // 1. Semi-transparent bounding box fill
+        ctx.fillStyle = 'rgba(0, 245, 212, 0.08)';
+        ctx.fillRect(box.x, box.y, box.width, box.height);
+
+        // 2. Corner brackets for a precision medical AR feel
+        const cornerLen = Math.max(5, radius * 0.4);
+        ctx.strokeStyle = '#00f5d4';
+        ctx.lineWidth = 1.8;
+        ctx.lineCap = 'square';
+
+        // Top-left
+        ctx.beginPath();
+        ctx.moveTo(box.x, box.y + cornerLen);
+        ctx.lineTo(box.x, box.y);
+        ctx.lineTo(box.x + cornerLen, box.y);
+        ctx.stroke();
+
+        // Top-right
+        ctx.beginPath();
+        ctx.moveTo(box.x + box.width - cornerLen, box.y);
+        ctx.lineTo(box.x + box.width, box.y);
+        ctx.lineTo(box.x + box.width, box.y + cornerLen);
+        ctx.stroke();
+
+        // Bottom-left
+        ctx.beginPath();
+        ctx.moveTo(box.x, box.y + box.height - cornerLen);
+        ctx.lineTo(box.x, box.y + box.height);
+        ctx.lineTo(box.x + cornerLen, box.y + box.height);
+        ctx.stroke();
+
+        // Bottom-right
+        ctx.beginPath();
+        ctx.moveTo(box.x + box.width - cornerLen, box.y + box.height);
+        ctx.lineTo(box.x + box.width, box.y + box.height);
+        ctx.lineTo(box.x + box.width, box.y + box.height - cornerLen);
+        ctx.stroke();
+
+        // 3. Circular iris boundary reticle
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0, 245, 212, 0.7)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 2]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 4. Center crosshair
+        const ch = Math.max(3, radius * 0.25);
+        ctx.beginPath();
+        ctx.moveTo(center.x - ch, center.y);
+        ctx.lineTo(center.x + ch, center.y);
+        ctx.moveTo(center.x, center.y - ch);
+        ctx.lineTo(center.x, center.y + ch);
+        ctx.strokeStyle = '#00f5d4';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // 5. Un-mirrored label badges
+        const labelText = `Iris ⌀${scaler.irisDiameterMm}mm (${diamPx.toFixed(1)}px)`;
+        const scaleText = idx === 0 ? `Scale: ${scaler.pixelsPerMm.toFixed(2)} px/mm` : null;
+
+        ctx.save();
+        ctx.translate(center.x, box.y - 8);
+        if (mirrored) ctx.scale(-1, 1);
+
+        ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+
+        const textWidth = ctx.measureText(labelText).width;
+        ctx.fillStyle = 'rgba(10, 25, 30, 0.85)';
+        ctx.fillRect(-textWidth / 2 - 5, -16, textWidth + 10, 16);
+        ctx.strokeStyle = 'rgba(0, 245, 212, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-textWidth / 2 - 5, -16, textWidth + 10, 16);
+
+        ctx.fillStyle = '#00f5d4';
+        ctx.fillText(labelText, 0, -3);
+
+        if (scaleText) {
+          const sWidth = ctx.measureText(scaleText).width;
+          ctx.fillStyle = 'rgba(10, 25, 30, 0.85)';
+          ctx.fillRect(-sWidth / 2 - 5, -34, sWidth + 10, 16);
+          ctx.strokeStyle = 'rgba(255, 225, 77, 0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(-sWidth / 2 - 5, -34, sWidth + 10, 16);
+          ctx.fillStyle = '#ffe14d';
+          ctx.fillText(scaleText, 0, -21);
+        }
+
+        ctx.restore();
+      });
+    } else if (scaler._source === 'mouth_width' && scaler.mouthRef) {
+      // Fallback visualization: ruler across mouth corners
+      const { left, right, widthPx, refMm } = scaler.mouthRef;
+      ctx.beginPath();
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.strokeStyle = 'rgba(255, 225, 77, 0.8)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const midX = (left.x + right.x) / 2;
+      const midY = (left.y + right.y) / 2;
+      const label = `Mouth Scale Ref: ${refMm}mm (${widthPx.toFixed(1)}px) → ${scaler.pixelsPerMm.toFixed(2)} px/mm`;
+
+      ctx.save();
+      ctx.translate(midX, midY + 18);
+      if (mirrored) ctx.scale(-1, 1);
+      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(10, 25, 30, 0.85)';
+      ctx.fillRect(-tw / 2 - 6, -16, tw + 12, 18);
+      ctx.strokeStyle = 'rgba(255, 225, 77, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-tw / 2 - 6, -16, tw + 12, 18);
+      ctx.fillStyle = '#ffe14d';
+      ctx.fillText(label, 0, -2);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
 }
