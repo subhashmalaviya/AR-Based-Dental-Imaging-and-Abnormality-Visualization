@@ -193,7 +193,12 @@ function processFrame(nowMs) {
   // so the visual iris bounding boxes and current scale are ready for render.
   if (landmarkList && width && height) {
     irisScaler.update(landmarkList, width, height);
+    // Keep HUD informed so the AI capture button reflects scale readiness.
+    hud.setIrisScaler(irisScaler);
   }
+
+  // Supply HUD with live tracks so "Live Estimate" works on-demand
+  hud.setLiveTracks(toothResult.tracks, (pt) => anchor.localToScreen(pt));
 
   const dentalModel = hud.getDentalReferenceModel();
   const classifiedTeeth = (dentalModel && toothResult.tracks.length)
@@ -313,6 +318,7 @@ async function start() {
     anchor.reset();
     teeth.reset();
     state.running = true;
+    hud.setVideoSource(video);   // enables AI capture button once ready
     scheduleNext();
     setButtons(true);
   } catch (err) {

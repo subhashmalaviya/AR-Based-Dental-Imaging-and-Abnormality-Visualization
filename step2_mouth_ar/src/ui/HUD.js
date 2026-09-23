@@ -7,6 +7,10 @@
  */
 
 import { DentalReferenceModel, DEFAULT_HALF_ARCH, TOOTH_TYPES } from '../core/DentalReferenceModel.js';
+import { estimateFromBlob, estimateFromTracks, captureFrame, drawThumbnail, HF_MODEL_ID } from '../core/HFToothEstimator.js';
+
+/** localStorage key for the HF API token. */
+const HF_TOKEN_KEY = 'dental_ar_hf_token';
 
 export class HUD {
   constructor(root = document) {
@@ -70,7 +74,14 @@ export class HUD {
       particularRows: root.getElementById('particularErrorRows'),
     };
     this._fpsSamples = [];
+    /** @type {HTMLVideoElement|null} Set by main.js via setVideoSource(). */
+    this._video = null;
+    /** @type {{pixelsPerMm:number,isReady:()=>boolean}|null} Set by main.js. */
+    this._irisScaler = null;
+    /** @type {{tracks:object[], localToScreen:Function}|null} Set by main.js each frame. */
+    this._liveTrackData = null;
     this._initDentalArchInputs();
+    this._initAIEstimation();
   }
 
   _initDentalArchInputs() {
@@ -140,6 +151,239 @@ export class HUD {
         if (lH) lH.value = DEFAULT_HALF_ARCH.lower[t.key].height;
       });
     });
+  }
+
+  /** Called by main.js after camera starts, so the capture button can grab frames. */
+  setVideoSource(video) {
+    this._video = video;
+    this._updateCaptureBtn();
+  }
+
+  /** Called by main.js each frame with the live IrisScaler, enabling the capture button. */
+  setIrisScaler(scaler) {
+    this._irisScaler = scaler;
+    this._updateCaptureBtn();
+  }
+
+  _updateCaptureBtn() {
+    const btn = this.root.getElementById('captureEstimateBtn');
+    const liveBtn = this.root.getElementById('liveEstimateBtn');
+    const tokenOk   = !!(localStorage.getItem(HF_TOKEN_KEY)?.trim());
+    const videoOk   = !!(this._video?.readyState >= 2);
+    const scalerOk  = !!(this._irisScaler?.isReady?.());
+    const hasTracks = !!(this._liveTrackData?.tracks?.length > 0);
+
+    if (btn) btn.disabled = !(tokenOk && videoOk && scalerOk);
+    if (liveBtn) liveBtn.disabled = !(videoOk && scalerOk && hasTracks);
+
+    const status = this.root.getElementById('aiEstimateStatus');
+    if (!status) return;
+    if (!videoOk) {
+      status.textContent = 'Start camera first';
+      status.className = 'ai-status ai-status--idle';
+    } else if (!scalerOk) {
+      status.textContent = 'Waiting for iris scale calibration…';
+      status.className = 'ai-status ai-status--warn';
+    } else if (tokenOk) {
+      status.textContent = 'Ready — press Capture & AI Estimate or Live Estimate';
+      status.className = 'ai-status ai-status--idle';
+    } else {
+      status.textContent = 'Ready — click Live Estimate, or enter HF token for AI model';
+      status.className = 'ai-status ai-status--idle';
+    }
+  }
+
+  _initAIEstimation() {
+    const root = this.root;
+
+    // --- Token persistence ---
+    const tokenInput = root.getElementById('hfTokenInput');
+    const savedToken = localStorage.getItem(HF_TOKEN_KEY);
+    if (savedToken && tokenInput) {
+      tokenInput.value = savedToken;
+      tokenInput.classList.add('ai-token-input--saved');
+    }
+
+    root.getElementById('hfTokenSaveBtn')?.addEventListener('click', () => {
+      const tok = tokenInput?.value?.trim();
+      if (tok) {
+        localStorage.setItem(HF_TOKEN_KEY, tok);
+        if (tokenInput) tokenInput.classList.add('ai-token-input--saved');
+      } else {
+        localStorage.removeItem(HF_TOKEN_KEY);
+        if (tokenInput) tokenInput.classList.remove('ai-token-input--saved');
+      }
+      this._updateCaptureBtn();
+    });
+
+    // Reflect edits immediately in UI state (don't save until Save click)
+    tokenInput?.addEventListener('input', () => {
+      tokenInput.classList.remove('ai-token-input--saved');
+      this._updateCaptureBtn();
+    });
+
+    // --- Capture & Estimate ---
+    root.getElementById('captureEstimateBtn')?.addEventListener('click', () => {
+      this._runAiEstimate();
+    });
+
+    root.getElementById('liveEstimateBtn')?.addEventListener('click', () => {
+      this._runLiveTrackEstimate();
+    });
+  }
+
+  /**
+   * Captures the current video frame, calls HF API, and populates the
+   * half-arch reference table with the estimated dimensions.
+   */
+  async _runAiEstimate() {
+    const root   = this.root;
+    const video  = this._video;
+    const scaler = this._irisScaler;
+    const token  = localStorage.getItem(HF_TOKEN_KEY)?.trim();
+
+    const setStatus = (text, kind) => {
+      const el = root.getElementById('aiEstimateStatus');
+      if (el) { el.textContent = text; el.className = `ai-status ai-status--${kind}`; }
+    };
+    const btn = root.getElementById('captureEstimateBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+      // Validate prerequisites
+      if (!video || video.readyState < 2) throw new Error('Camera not ready');
+      if (!scaler?.isReady?.()) throw new Error('Iris scale not ready — open mouth wide in frame');
+      if (!token) throw new Error('HF token not saved');
+
+      setStatus('Capturing frame…', 'running');
+      const blob = await captureFrame(video);
+
+      // Show snapshot thumbnail
+      const wrap   = root.getElementById('aiSnapshotWrap');
+      const canvas = root.getElementById('aiSnapshotCanvas');
+      if (wrap && canvas) {
+        wrap.hidden = false;
+        await drawThumbnail(blob, canvas);
+      }
+
+      setStatus(`Running HF model (${HF_MODEL_ID})…`, 'running');
+      const result = await estimateFromBlob(blob, scaler.pixelsPerMm, token);
+
+      if (result.count === 0) {
+        if (this._liveTrackData?.tracks?.length) {
+          setStatus('HF API returned 0 detections — fallback to Live Estimate', 'warn');
+          this._runLiveTrackEstimate();
+        } else {
+          setStatus('Model found 0 teeth — try better lighting or wider mouth opening', 'warn');
+        }
+        return;
+      }
+
+      // Merge AI estimates into the table and rebuild dental model
+      this._applyEstimateToTable(result, scaler.pixelsPerMm);
+
+      setStatus(
+        `✓ Done — ${result.count} teeth detected, table updated`,
+        'done'
+      );
+    } catch (err) {
+      console.error('[HFToothEstimator]', err);
+      const msg = err.message.replace('HFToothEstimator: ', '');
+      if (this._liveTrackData?.tracks?.length) {
+        setStatus(`HF error (${msg}) — falling back to Live Estimate`, 'warn');
+        this._runLiveTrackEstimate();
+      } else {
+        setStatus(`❌ ${msg}`, 'error');
+        this.setBanner?.(`AI Estimate failed: ${msg}`, 'error');
+      }
+    } finally {
+      this._updateCaptureBtn();
+    }
+  }
+
+  /**
+   * Instantly estimates from live on-screen tracks without any API call.
+   * Called when HF API is unavailable or user prefers offline mode.
+   */
+  _runLiveTrackEstimate() {
+    const root   = this.root;
+    const scaler = this._irisScaler;
+    const data   = this._liveTrackData;
+
+    const setStatus = (text, kind) => {
+      const el = root.getElementById('aiEstimateStatus');
+      if (el) { el.textContent = text; el.className = `ai-status ai-status--${kind}`; }
+    };
+
+    try {
+      if (!scaler?.isReady?.()) throw new Error('Iris scale not ready');
+      if (!data?.tracks?.length)  throw new Error('No teeth visible in current frame');
+
+      const result = estimateFromTracks(data.tracks, data.localToScreen, scaler.pixelsPerMm);
+
+      if (result.count === 0) {
+        setStatus('No teeth in current frame — open mouth wider', 'warn');
+        return;
+      }
+
+      this._applyEstimateToTable(result, scaler.pixelsPerMm);
+      setStatus(`✓ Live estimate — ${result.count} teeth (${result.upperCount}↑ ${result.lowerCount}↓)`, 'done');
+    } catch (err) {
+      setStatus(`❌ ${err.message}`, 'error');
+    }
+  }
+
+  /** Shared logic: write estimate into inputs + rebuild dental model. */
+  _applyEstimateToTable(result, pixelsPerMm) {
+    const root = this.root;
+    const applyArch = (arch) => {
+      TOOTH_TYPES.forEach((t) => {
+        const aiDim = result[arch]?.[t.key];
+        if (!aiDim) return;
+        const w = root.getElementById(`dim_${arch}_${t.key}_w`);
+        const h = root.getElementById(`dim_${arch}_${t.key}_h`);
+        if (w) {
+          w.value = Math.max(1, Math.min(25, aiDim.width)).toFixed(1);
+          w.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (h) {
+          h.value = Math.max(1, Math.min(25, aiDim.height)).toFixed(1);
+          h.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
+    };
+    applyArch('upper');
+    applyArch('lower');
+
+    const dims    = { upper: {}, lower: {} };
+    const readVal = (id, fallback) => {
+      const el = root.getElementById(id);
+      const v  = parseFloat(el?.value);
+      return Number.isFinite(v) && v > 0 ? v : fallback;
+    };
+    TOOTH_TYPES.forEach((t) => {
+      dims.upper[t.key] = {
+        width:  readVal(`dim_upper_${t.key}_w`, DEFAULT_HALF_ARCH.upper[t.key].width),
+        height: readVal(`dim_upper_${t.key}_h`, DEFAULT_HALF_ARCH.upper[t.key].height),
+      };
+      dims.lower[t.key] = {
+        width:  readVal(`dim_lower_${t.key}_w`, DEFAULT_HALF_ARCH.lower[t.key].width),
+        height: readVal(`dim_lower_${t.key}_h`, DEFAULT_HALF_ARCH.lower[t.key].height),
+      };
+    });
+    this.dentalModel.setDimensions(dims);
+
+    const caption = root.getElementById('aiSnapshotCaption');
+    if (caption) {
+      caption.textContent =
+        `Detected ${result.count} teeth (${result.upperCount} upper, ${result.lowerCount} lower)` +
+        (pixelsPerMm ? ` @ ${pixelsPerMm.toFixed(1)} px/mm` : '');
+    }
+  }
+
+  /** Called by main.js each frame so live-estimate can access current tracks. */
+  setLiveTracks(tracks, localToScreen) {
+    this._liveTrackData = { tracks, localToScreen };
   }
 
   setSelectedTooth(track) {

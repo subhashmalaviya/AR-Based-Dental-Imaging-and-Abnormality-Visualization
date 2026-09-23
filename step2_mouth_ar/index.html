@@ -101,6 +101,52 @@
             Enter dimensions for one half-arch. Bilateral symmetry automatically models all 32 teeth across all 4 quadrants (FDI notation).
           </p>
 
+          <!-- AI Estimation Block -->
+          <div class="ai-estimate-block" id="aiEstimateBlock">
+            <div class="ai-estimate-header">
+              <span class="ai-badge">🤖 AI</span>
+              <span class="ai-estimate-title">Auto-Estimate from Live Camera</span>
+            </div>
+            <p class="ai-estimate-hint">
+              When tracking is locked and iris scale is ready, click
+              <strong>Capture &amp; Estimate</strong> — the current frame is sent
+              to a Hugging Face tooth-detection model and dimensions are auto-filled
+              in the table below.
+            </p>
+
+            <!-- HF Token row -->
+            <div class="ai-token-row">
+              <label for="hfTokenInput" class="ai-token-label">HF Token</label>
+              <input
+                type="password"
+                id="hfTokenInput"
+                class="ai-token-input"
+                placeholder="hf_…  (read token from huggingface.co/settings/tokens)"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="hfTokenSaveBtn" class="btn" style="font-size:11px;padding:4px 8px;white-space:nowrap" type="button">Save</button>
+            </div>
+
+            <!-- Capture row -->
+            <div class="ai-capture-row">
+              <button id="captureEstimateBtn" class="btn btn--ai" type="button" disabled>
+                📸 Capture &amp; AI Estimate
+              </button>
+              <button id="liveEstimateBtn" class="btn btn--live" type="button" disabled
+                title="Instantly estimate from the currently visible teeth — no HF token needed">
+                📐 Live Estimate
+              </button>
+              <span id="aiEstimateStatus" class="ai-status ai-status--idle">Idle — enter HF token &amp; start camera</span>
+            </div>
+
+            <!-- Snapshot + detection overlay thumbnail -->
+            <div id="aiSnapshotWrap" class="ai-snapshot-wrap" hidden>
+              <canvas id="aiSnapshotCanvas" class="ai-snapshot-canvas"></canvas>
+              <p class="ai-snapshot-caption" id="aiSnapshotCaption"></p>
+            </div>
+          </div>
+
           <div class="arch-tabs">
             <button id="tabUpperArch" class="arch-tab-btn active" type="button">Upper Half-Arch (8)</button>
             <button id="tabLowerArch" class="arch-tab-btn" type="button">Lower Half-Arch (8)</button>
