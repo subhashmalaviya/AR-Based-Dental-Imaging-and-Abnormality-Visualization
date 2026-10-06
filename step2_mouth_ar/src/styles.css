@@ -56,15 +56,23 @@ body {
   align-items: start;
 }
 @media (max-width: 900px) {
-  .stage { grid-template-columns: 1fr; }
+  .stage { grid-template-columns: 1fr; padding: 10px; gap: 12px; }
 }
 
 .viewport {
-  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  position: relative; width: 100%;
+  aspect-ratio: var(--viewport-aspect, 16 / 9);
+  max-height: 80vh;
+  margin: 0 auto;
   background: #000; border: 1px solid var(--line); border-radius: 12px;
   overflow: hidden;
 }
-@media (max-width: 900px) { .viewport { aspect-ratio: 3 / 4; } }
+@media (max-width: 900px) {
+  .viewport {
+    aspect-ratio: var(--viewport-aspect, 9 / 16);
+    max-height: 75vh;
+  }
+}
 
 #camera, #overlay {
   position: absolute; inset: 0;

@@ -107,6 +107,12 @@ function resizeCanvas() {
     canvas.width = width;
     canvas.height = height;
   }
+  const vp = document.querySelector('.viewport');
+  if (vp && (!vp._lastAspect || vp._lastAspect !== `${width}/${height}`)) {
+    vp._lastAspect = `${width}/${height}`;
+    vp.style.setProperty('--viewport-aspect', `${width} / ${height}`);
+    vp.style.aspectRatio = `${width} / ${height}`;
+  }
   // The preview is mirrored for the front camera (users expect a mirror), and
   // the canvas is mirrored with it via CSS so overlay pixels stay registered to
   // video pixels. Tracking maths always runs in unmirrored frame coordinates.

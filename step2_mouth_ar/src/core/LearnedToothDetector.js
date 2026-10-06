@@ -248,11 +248,32 @@ export class LearnedToothDetector extends ToothDetector {
       const c = roi.roiToLocal(t.cx, t.cy);
       const p0 = roi.roiToLocal(t.bbox.x0, t.bbox.y0);
       const p1 = roi.roiToLocal(t.bbox.x1, t.bbox.y1);
+      const localContour = t.contour.map(([x, y]) => roi.roiToLocal(x, y));
+
+      // Derive accurate subpixel bounding box from contour extents when available,
+      // avoiding discrete integer ROI pixel raster discretization jumps.
+      let boxU = p0.u, boxV = p0.v, boxW = p1.u - p0.u, boxH = p1.v - p0.v;
+      if (localContour.length >= 3) {
+        let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+        for (const pt of localContour) {
+          if (pt.u < uMin) uMin = pt.u;
+          if (pt.u > uMax) uMax = pt.u;
+          if (pt.v < vMin) vMin = pt.v;
+          if (pt.v > vMax) vMax = pt.v;
+        }
+        if (uMax - uMin > 1e-4 && vMax - vMin > 1e-4) {
+          boxU = uMin;
+          boxV = vMin;
+          boxW = uMax - uMin;
+          boxH = vMax - vMin;
+        }
+      }
+
       const partial = t.touchesEdge || t.area < 0.45 * medianArea;
       return {
         center: { u: c.u, v: c.v },
-        box: { u: p0.u, v: p0.v, w: p1.u - p0.u, h: p1.v - p0.v },
-        contour: t.contour.map(([x, y]) => roi.roiToLocal(x, y)),
+        box: { u: boxU, v: boxV, w: boxW, h: boxH },
+        contour: localContour,
         area: t.area,
         confidence: t.confidence,
         arch: jaws[k],
