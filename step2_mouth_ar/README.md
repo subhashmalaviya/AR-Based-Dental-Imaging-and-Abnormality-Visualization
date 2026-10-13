@@ -1177,3 +1177,44 @@ If you pulled the code without reinstalling, run `npm run vendor:ort` once.
    as a `ToothDetector` and compare on the same ground truth.
 5. Only then proceed to Step 4 (dental image registration).
 
+# Ground-truth comparison in the live app
+
+The **Your ground truth comparison** panel below the camera includes the user's
+hand-marked `photo_area.jpg` reference:
+
+- **Live reference** compares completed camera mouth predictions with the selected
+  photo's ground-truth mask, initially fitted to the detected lip opening. It shows
+  the model in cyan, aligned GT in yellow, a pixel-difference view and overlap scores.
+  Click **Start camera**, open your mouth, then **Capture comparison** to freeze a
+  frame. Choose the left/right photo and adjust width, height, position, rotation
+  or horizontal flip under **Adjust reference alignment**; **Resume live** continues.
+  The comparison uses unmirrored mouth crops, with each prediction paired to its
+  exact input image. Lost tracking, closed mouth, disabled detection and stale
+  predictions clear live scores; an explicitly captured frame stays frozen.
+  Scores measure reference overlap, not accuracy against labels for this camera
+  frame. Alignment uses lip geometry and manual controls, never predicted teeth.
+- **Test reference photo** runs the currently selected detector with a snapshot
+  of its settings on the matching clean photo. It displays predicted masks,
+  green/red/blue pixel errors, IoU, Dice, precision, and recall. The test works
+  without starting the camera. Download scores as JSON or download the GT mask.
+- **Upload image pair** accepts a clean PNG/JPEG/WebP and a matching, aligned
+  annotated copy of the same dimensions (up to 4 megapixels / 25 MB per file).
+  Draw a crop around one mouth on the clean-image preview, or use the whole
+  image for a close-up. Choose colored closed outlines or a white-on-black mask.
+  **Preview ground truth** fills enclosed outlines and shows the extracted mask;
+  adjust line color, minimum color difference or gap repair if needed.
+  **Detect & compare** runs the selected detector on clean pixels only and
+  displays GT, predictions, pixel errors, IoU, Dice, precision and recall.
+  Scoring covers only the selected crop, treating unmarked pixels as background.
+  JSON records filenames, original size, crop, settings and confusion counts;
+  downloaded PNG masks use crop coordinates. Files are processed locally.
+  For collages, evaluate one selected mouth at a time. The upload extractor
+  applies generic gap repair, not the built-in reference's hand-reviewed gap
+  correction; inspect its mask rather than assuming identical scores.
+
+Photo testing uses a separate detector session, fixed mouth crops and the
+reconstructed filled mask. It does not change the live detector, train on the
+reference, or alter its output. Live comparison transfers the photo mask only
+inside the comparison panel. The bundled reference
+assets and extraction provenance are documented in `public/ground-truth/README.md`.
+

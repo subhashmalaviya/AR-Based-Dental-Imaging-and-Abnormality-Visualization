@@ -1,0 +1,36 @@
+{
+  "model": "/home/subhash/iitd-sem-7/cod492/step2_mouth_ar/public/models/tooth_seg.onnx",
+  "inputWidth": 160,
+  "inputHeight": 120,
+  "decoder": {
+    "semThr": 0.5,
+    "ctrThr": 0.25,
+    "peakRadius": 3,
+    "boundaryWeight": 20,
+    "splitWide": false,
+    "autoGain": false
+  },
+  "crops": [
+    {
+      "name": "left",
+      "rectangle": [
+        105,
+        52,
+        280,
+        341
+      ],
+      "detections": 17
+    },
+    {
+      "name": "right",
+      "rectangle": [
+        495,
+        55,
+        312,
+        340
+      ],
+      "detections": 17
+    }
+  ],
+  "scope": "Detector only; manually fixed crops; no face landmarks, tracking or lip aperture gating"
+}

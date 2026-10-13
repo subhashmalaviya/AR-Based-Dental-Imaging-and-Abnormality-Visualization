@@ -79,3 +79,15 @@ Screenshot*.png
 # regenerable evaluation crops and training data
 step2_mouth_ar/tests/eval/rois/
 step2_mouth_ar/tools/train/_data/
+
+# Test output recordings and scratch files
+testoutputs/
+step2_mouth_ar/scratch/
+ChatGPT Image*.png
+crop_*.jpg
+fine_grid_*.jpg
+grid_*.jpg
+scratch_*.jpg
+test_shift_right.jpg
+test_vis_sup.jpg
+sbelow_*_crop.jpg

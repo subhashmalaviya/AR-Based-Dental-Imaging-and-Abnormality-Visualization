@@ -1,0 +1,24 @@
+{
+  "width": 160,
+  "height": 120,
+  "crops": [
+    {
+      "name": "left",
+      "rectangle": [
+        105,
+        52,
+        280,
+        341
+      ]
+    },
+    {
+      "name": "right",
+      "rectangle": [
+        495,
+        55,
+        312,
+        340
+      ]
+    }
+  ]
+}

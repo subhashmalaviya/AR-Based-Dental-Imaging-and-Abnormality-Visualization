@@ -1,0 +1,187 @@
+{
+  "schema": "photo-area-pixel-evaluation/1",
+  "sources": {
+    "/home/subhash/iitd-sem-7/cod492/photo_area.jpg": "fc36364f7ac5aa35818dcbf57eca7731647efef777992be3b0bec3b4e84c26e1",
+    "/home/subhash/iitd-sem-7/cod492/photo_area_clean.jpg": "af0235bb3bb003d2dc8432a69877151f72859f2faa10cd5b30abd7fa9fe3a5b7",
+    "/home/subhash/iitd-sem-7/cod492/step2_mouth_ar/public/models/tooth_seg.onnx": "a7fb02a9a95eeaf9d4fe3de86b7450ac89f8d5f750f3cfcd3eb7d5c0775fd198"
+  },
+  "ground_truth": {
+    "method": "color strokes + 5x5 closing + enclosed-region fill + 1px dilation",
+    "status": "automatically reconstructed; review overlay before treating as final labels",
+    "enclosed_regions": 46,
+    "manual_gap_repair": [
+      [
+        716,
+        325
+      ],
+      [
+        726,
+        325
+      ]
+    ],
+    "note": "Binary union only; enclosed regions are not a validated tooth count"
+  },
+  "inference": {
+    "model": "/home/subhash/iitd-sem-7/cod492/step2_mouth_ar/public/models/tooth_seg.onnx",
+    "inputWidth": 160,
+    "inputHeight": 120,
+    "decoder": {
+      "semThr": 0.5,
+      "ctrThr": 0.25,
+      "peakRadius": 3,
+      "boundaryWeight": 20,
+      "splitWide": false,
+      "autoGain": false
+    },
+    "crops": [
+      {
+        "name": "left",
+        "rectangle": [
+          105,
+          52,
+          280,
+          341
+        ],
+        "detections": 17
+      },
+      {
+        "name": "right",
+        "rectangle": [
+          495,
+          55,
+          312,
+          340
+        ],
+        "detections": 17
+      }
+    ],
+    "scope": "Detector only; manually fixed crops; no face landmarks, tracking or lip aperture gating"
+  },
+  "coordinate_space": "original image, 880x450; no mirroring or registration warp",
+  "evaluation_cards": {
+    "left": [
+      11,
+      13,
+      421,
+      396
+    ],
+    "right": [
+      447,
+      13,
+      421,
+      396
+    ]
+  },
+  "boundary_ignore_radius_px": 3,
+  "assumptions": [
+    "All unmarked pixels inside the two cards count as background.",
+    "The clean and annotated photographs share image coordinates.",
+    "Color classes and tooth identities are not scored."
+  ],
+  "results": {
+    "decoded": {
+      "strict": {
+        "tp": 37934,
+        "fp": 10322,
+        "fn": 9022,
+        "tn": 276154,
+        "evaluated_pixels": 333432,
+        "iou": 0.6622787108488425,
+        "dice": 0.7968323320589842,
+        "precision": 0.7860991379310345,
+        "recall": 0.8078626799557033,
+        "pixel_accuracy": 0.9419851723889728
+      },
+      "excluding_3px_boundary": {
+        "tp": 27714,
+        "fp": 3804,
+        "fn": 4349,
+        "tn": 269040,
+        "evaluated_pixels": 304907,
+        "iou": 0.7726879861711322,
+        "dice": 0.8717698683568991,
+        "precision": 0.8793070626308775,
+        "recall": 0.8643607896952874,
+        "pixel_accuracy": 0.9732606991640074
+      },
+      "per_card": {
+        "left": {
+          "tp": 14007,
+          "fp": 4161,
+          "fn": 5076,
+          "tn": 143472,
+          "evaluated_pixels": 166716,
+          "iou": 0.6026071244192049,
+          "dice": 0.7520335024563098,
+          "precision": 0.7709709379128138,
+          "recall": 0.7340040874076403,
+          "pixel_accuracy": 0.944594400057583
+        },
+        "right": {
+          "tp": 23927,
+          "fp": 6161,
+          "fn": 3946,
+          "tn": 132682,
+          "evaluated_pixels": 166716,
+          "iou": 0.7030322618557913,
+          "dice": 0.8256241265678645,
+          "precision": 0.7952339803243819,
+          "recall": 0.8584293043447063,
+          "pixel_accuracy": 0.9393759447203628
+        }
+      }
+    },
+    "semantic": {
+      "strict": {
+        "tp": 39542,
+        "fp": 11063,
+        "fn": 7414,
+        "tn": 275413,
+        "evaluated_pixels": 333432,
+        "iou": 0.6815353591064996,
+        "dice": 0.8106107973473007,
+        "precision": 0.7813852386127853,
+        "recall": 0.8421075048982025,
+        "pixel_accuracy": 0.9445854027207946
+      },
+      "excluding_3px_boundary": {
+        "tp": 28769,
+        "fp": 4094,
+        "fn": 3294,
+        "tn": 268750,
+        "evaluated_pixels": 304907,
+        "iou": 0.7956688884586663,
+        "dice": 0.8862089147645011,
+        "precision": 0.8754222073456471,
+        "recall": 0.8972647600037427,
+        "pixel_accuracy": 0.9757696609129997
+      },
+      "per_card": {
+        "left": {
+          "tp": 14778,
+          "fp": 4610,
+          "fn": 4305,
+          "tn": 143023,
+          "evaluated_pixels": 166716,
+          "iou": 0.62372852741316,
+          "dice": 0.7682670063164462,
+          "precision": 0.7622240561171859,
+          "recall": 0.7744065398522245,
+          "pixel_accuracy": 0.946525828354807
+        },
+        "right": {
+          "tp": 24764,
+          "fp": 6453,
+          "fn": 3109,
+          "tn": 132390,
+          "evaluated_pixels": 166716,
+          "iou": 0.721435646448756,
+          "dice": 0.8381790489084447,
+          "precision": 0.7932857097094532,
+          "recall": 0.8884583647257203,
+          "pixel_accuracy": 0.9426449770867823
+        }
+      }
+    }
+  }
+}

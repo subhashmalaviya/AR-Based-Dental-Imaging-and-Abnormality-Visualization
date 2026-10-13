@@ -32,6 +32,7 @@ import { MetadataLogger } from './core/MetadataLogger.js';
 import { formatDuration } from './ui/HUD.js';
 // --- Iris/Mouth pixel-to-mm scaler -------------------------------------------
 import { IrisScaler } from './core/IrisScaler.js';
+import { GroundTruthComparison } from './ui/GroundTruthComparison.js';
 
 const APP_VERSION = '3.5.0';
 const MODEL_URL = `${import.meta.env.BASE_URL}models/tooth_seg.onnx`;
@@ -56,6 +57,15 @@ const teeth = new ToothPipeline({ detector: 'classical', smoothing: 'balanced' }
 const toothRenderer = new ToothOverlayRenderer(ctx);
 const debugRenderer = new DebugRenderer(ctx);
 const ar3d = new AR3DRenderer(ctx);
+const groundTruth = new GroundTruthComparison({
+  root: document.getElementById('groundTruthComparison'),
+  modelUrl: MODEL_URL,
+  startCamera: start,
+  getDetector: () => ({ key: teeth.detectorKey, params: teeth.detector.isLearnedModel
+    ? { ...teeth.detector.params }
+    : Object.fromEntries(['whitenessPercentile', 'whitenessFloor', 'whitenessRelative',
+      'splitRatio', 'archEdgeFrac', 'minAreaPx'].map(key => [key, teeth.detector[key]])) }),
+});
 
 // --- recording ------------------------------------------------------------
 const recorder = new SessionRecorder({
@@ -213,6 +223,7 @@ function processFrame(nowMs) {
 
   const fps = camera.tick(nowMs);
   drawFrame(landmarkList, mouth, toothResult.tracks, toothResult.stats, classifiedTeeth);
+  groundTruth.updateLive(teeth.lastComparisonFrame, teeth.reason, nowMs);
 
   // Compute estimated tooth dimensions in mm for each visible track.
   let toothSizesMm = null;
@@ -341,11 +352,13 @@ async function stop() {
   anchor.reset();
   teeth.reset();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  groundTruth.cameraStopped();
   hud.update({ faceDetected: false, mouthTracked: false, anchorValid: false, fps: 0 });
   setButtons(false);
 }
 
 function setButtons(running) {
+  document.getElementById('gtStartCamera').disabled = running;
   document.getElementById('startBtn').disabled = running;
   document.getElementById('stopBtn').disabled = !running;
   document.getElementById('switchBtn').disabled = !running || recorder.isRecording;
@@ -689,7 +702,7 @@ if (!CameraManager.isSecureContext()) {
 window.dentalAR = {
   camera, faceTracker, mouthTracker, anchor, overlay, state,
   // Step 3
-  teeth, toothRenderer, debugRenderer, ar3d,
+  teeth, toothRenderer, debugRenderer, ar3d, groundTruth,
   recorder, metaLog,
   getLastRecording: () => lastRecording,
 };

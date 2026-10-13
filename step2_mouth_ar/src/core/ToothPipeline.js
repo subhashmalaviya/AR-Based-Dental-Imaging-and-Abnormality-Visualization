@@ -55,6 +55,7 @@ export class ToothPipeline {
     this._frame = 0;
     this.lastDetections = [];
     this.lastRoiImage = null;
+    this.lastComparisonFrame = null;
     this.selectedId = null;
     this.lastError = null;
 
@@ -172,6 +173,7 @@ export class ToothPipeline {
   setDetectEveryN(n) { this.detectEveryN = Math.max(1, n | 0); }
 
   reset() {
+    this.lastComparisonFrame = null;
     this.tracker.reset();
     this.smoother.reset();
     this.anchors3D.clear();
@@ -257,6 +259,13 @@ export class ToothPipeline {
             .then((dets) => {
               if (gen !== this._gen) return;      // reset / switched meanwhile
               this._noteLighting(this.detector.lastBrightness);
+              // Keep a completed prediction with the exact image and geometry
+              // it was inferred from; lastRoiImage may already be a newer frame.
+              this.lastComparisonFrame = {
+                image, aperture, roi: snap, detections: dets ?? [],
+                labels: this.detector.lastDebug?.labels?.slice() ?? null,
+                detector: this.detectorKey, capturedAt: started, completedAt: performance.now(),
+              };
               this._pending = { dets: dets ?? [], jawRef: snap.jawRef };
               this._noteDetection(performance.now() - started);
             })
@@ -278,6 +287,9 @@ export class ToothPipeline {
         this.lastRoiImage = image;
         const aperture = this.roi.apertureMask();
         fresh = this.detector.detect(image, aperture, this.roi) ?? [];
+        this.lastComparisonFrame = { image, aperture, roi: this.roi.snapshot(),
+          detections: fresh, labels: null, detector: this.detectorKey,
+          capturedAt: d0, completedAt: performance.now() };
       } else {
         this.reason = 'roi extract failed';
         fresh = [];
