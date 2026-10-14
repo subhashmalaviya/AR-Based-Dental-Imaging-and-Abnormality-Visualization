@@ -1228,6 +1228,17 @@ files/crop/settings clear them. Save editable labels as run-length encoded JSON
 and restore them for the same clean filename and crop. Binary PNG exports remain
 available; the JSON preserves separate IDs even when teeth touch.
 
+The editor overlays the model's instance boundaries in orange directly on the
+editable GT, with a visibility toggle. The editor and all comparison images
+share the selected background (marked, clean or black); the instance views also
+share mask opacity. This avoids switching photo backgrounds between editing and
+review. GT labels are scored at their exact edited pixel positions, without
+re-extraction, resampling or alignment to predictions. Background/opacity changes
+only redraw the views and never change scores. Select Clean image to check the
+GT against the inference input: equal image dimensions alone do not guarantee
+that the teeth in two uploaded images are aligned. Inference always sees the
+clean crop, regardless of the display background.
+
 The overall metrics still compare the binary union of all teeth. The per-tooth
 table uses one-to-one maximum-total-IoU matching between GT instances (T IDs) and
 the detector's actual instances (P IDs). It lists IoU, Dice, precision, recall,

@@ -28,7 +28,7 @@ export class UploadedPhotoComparison {
       this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
       this.updateComparison();
       this.el('uploadStatus').textContent = 'Ground truth updated. Overall and per-tooth scores use your edited labels. Detect & compare keeps these edits.';
-    });
+    }, () => this.drawComparison());
     this.el('uploadLabelsJson').addEventListener('click', () => {
       if (!this.truthLabels) return;
       this.download(new Blob([JSON.stringify({ schema: 'tooth-labels/1', cleanImage: this.cleanName,
@@ -197,16 +197,17 @@ export class UploadedPhotoComparison {
 
   updateComparison() {
     if (!this.truthLabels || !this.input) return;
+    // The editor label array is the source of truth: no extraction, resizing or
+    // registration is applied between editing, scoring and rendering results.
     this.truth = binaryFromLabels(this.truthLabels);
-    drawInstances(this.el('uploadGtCanvas'), this.input, this.truthLabels, 'T');
+    this.editor.setPrediction(this.predictionLabels);
+    this.drawComparison();
     this.el('uploadMasks').hidden = false;
     this.el('uploadPredictionFigure').hidden = !this.predictionLabels;
     if (!this.predictionLabels) { this.el('uploadResults').hidden = true; return; }
     this.prediction = binaryFromLabels(this.predictionLabels);
     const scores = scoreReferenceOverlap(this.truth, this.prediction);
     const perTooth = compareInstances(this.truthLabels, this.predictionLabels, this.input.width);
-    drawInstances(this.el('uploadPredCanvas'), this.input, this.predictionLabels, 'P');
-    this.paint(this.el('uploadErrorCanvas'), this.input, this.truth, this.prediction);
     for (const k of ['iou', 'dice', 'precision', 'recall']) this.el(`upload_${k}`).textContent = percent(scores[k]);
     this.result = { cleanImage: this.cleanName, groundTruthImage: this.markedName,
       originalSize: [this.clean.width, this.clean.height], evaluatedRegion: this.crop.slice(), scores, perTooth,
@@ -233,6 +234,18 @@ export class UploadedPhotoComparison {
       body.append(tr);
     }
     this.el('uploadResults').hidden = false;
+  }
+
+  drawComparison() {
+    if (!this.truthLabels || !this.input) return;
+    // Match the editor's background and opacity, including the marked-image
+    // view. Inference always uses this.input (the clean crop) independently.
+    const { background, opacity } = this.editor.getView();
+    drawInstances(this.el('uploadGtCanvas'), background, this.truthLabels, 'T', opacity);
+    if (this.predictionLabels) {
+      drawInstances(this.el('uploadPredCanvas'), background, this.predictionLabels, 'P', opacity);
+      this.paint(this.el('uploadErrorCanvas'), background, this.truthLabels, this.predictionLabels);
+    }
   }
 
   paint(c, input, truth, pred) {

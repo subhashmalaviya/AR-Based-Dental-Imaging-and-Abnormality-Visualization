@@ -23,8 +23,25 @@ export function drawInstances(canvas, background, labels, prefix = 'T', opacity 
   }
 }
 
+// Draw inside the model's boundary pixels in the same crop grid as the editable
+// labels. Keep touching model instances separate; never move or dilate labels.
+export function drawPredictionOutline(canvas, labels) {
+  if (!labels) return;
+  const { width: w, height: h } = canvas;
+  if (labels.length !== w * h) throw new Error('Prediction dimensions must match the editor');
+  const ctx = canvas.getContext('2d'), image = ctx.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, id = labels[i];
+    if (id > 0 && (x === 0 || x === w - 1 || y === 0 || y === h - 1
+      || labels[i - 1] !== id || labels[i + 1] !== id || labels[i - w] !== id || labels[i + w] !== id)) {
+      image.data.set([255, 90, 54, 255], i * 4);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 export class ToothMaskEditor {
-  constructor(root, onChange) {
+  constructor(root, onChange, onViewChange = () => {}) {
     this.el = id => root.querySelector(`#${id}`); this.onChange = onChange;
     this.canvas = this.el('toothEditCanvas'); this.history = []; this.points = [];
     this.el('toothEditSelect').addEventListener('change', e => { this.selected = Number(e.target.value); });
@@ -43,7 +60,10 @@ export class ToothMaskEditor {
       this.labels = this.history.pop(); this.points = []; this.changed();
     });
     this.el('toothEditZoom').addEventListener('input', e => { this.canvas.style.width = `${Number(e.target.value) * 100}%`; });
-    for (const id of ['toothEditOpacity', 'toothEditBackground']) this.el(id).addEventListener('input', () => this.draw());
+    for (const id of ['toothEditOpacity', 'toothEditBackground']) this.el(id).addEventListener('input', () => {
+      this.draw(); onViewChange();
+    });
+    this.el('toothEditPrediction').addEventListener('change', () => this.draw());
     this.el('toothEditTool').addEventListener('change', () => { this.points = []; this.draw(); });
     this.el('toothEditCancel').addEventListener('click', () => { this.points = []; this.draw(); });
     this.el('toothEditFill').addEventListener('click', () => this.fillPolygon());
@@ -65,7 +85,7 @@ export class ToothMaskEditor {
 
   setData(labels, clean, marked) {
     Object.assign(this, { labels, clean, marked, width: clean.width, height: clean.height,
-      history: [], points: [], drawing: false });
+      history: [], points: [], drawing: false, prediction: null, blackBackground: null });
     const ids = instanceStats(labels, this.width).map(s => s.id);
     this.selected = ids[0] ?? 1; this.nextId = ids.reduce((max, id) => Math.max(max, id), 1) + 1;
     this.refresh(); this.draw();
@@ -116,15 +136,33 @@ export class ToothMaskEditor {
     this.el('toothEditUndo').disabled = this.disabled || !this.history.length;
   }
 
-  draw() {
-    if (!this.labels) return;
+  setPrediction(labels) {
+    this.prediction = labels;
+    this.el('toothEditPredictionNote').textContent = labels
+      ? 'Colored T regions are your editable ground truth. Orange outlines are the model prediction on the same pixels.'
+      : 'Run Detect & compare to see the model outline directly over your editable ground truth.';
+    this.draw();
+  }
+
+  getView() {
     const choice = this.el('toothEditBackground').value;
     let background = choice === 'marked' ? this.marked : this.clean;
     if (choice === 'mask') {
-      background = document.createElement('canvas'); background.width = this.width; background.height = this.height;
-      const ctx = background.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, this.width, this.height);
+      if (!this.blackBackground) {
+        this.blackBackground = document.createElement('canvas');
+        this.blackBackground.width = this.width; this.blackBackground.height = this.height;
+        const ctx = this.blackBackground.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, this.width, this.height);
+      }
+      background = this.blackBackground;
     }
-    drawInstances(this.canvas, background, this.labels, 'T', Number(this.el('toothEditOpacity').value));
+    return { background, opacity: Number(this.el('toothEditOpacity').value) };
+  }
+
+  draw() {
+    if (!this.labels) return;
+    const { background, opacity } = this.getView();
+    drawInstances(this.canvas, background, this.labels, 'T', opacity);
+    if (this.el('toothEditPrediction').checked) drawPredictionOutline(this.canvas, this.prediction);
     if (this.points.length) {
       const ctx = this.canvas.getContext('2d'); ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineWidth = 2;
       ctx.beginPath(); this.points.forEach((p, i) => ctx[i ? 'lineTo' : 'moveTo'](...p)); ctx.stroke();

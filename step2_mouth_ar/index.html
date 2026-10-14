@@ -72,7 +72,7 @@
         </div>
         <p id="uploadStatus" class="hint" role="status" aria-live="polite">Choose both matching images.</p>
         <section id="uploadEditor" hidden aria-label="Edit individual ground-truth teeth">
-          <h3>Edit ground-truth teeth</h3>
+          <h3>Edit &amp; compare ground-truth teeth</h3>
           <p id="toothEditCount" class="hint"></p>
           <p class="hint">Pick a tooth and paint missing pixels in its color. For a missing box, click <strong>New tooth</strong>, then paint or click around its boundary with <strong>Outline polygon</strong> and <strong>Fill polygon</strong>. Painting over another tooth transfers those pixels to the selected ID.</p>
           <div class="tooth-editor-controls">
@@ -80,14 +80,17 @@
             <label class="row row--stack">Tool <select id="toothEditTool"><option value="paint">Paint selected tooth</option><option value="erase">Erase pixels</option><option value="pick">Pick tooth from mask</option><option value="polygon">Outline polygon</option></select></label>
             <label class="row row--stack">Brush radius (pixels) <input id="toothEditBrush" type="number" min="1" max="60" step="1" value="5" /></label>
             <label class="row row--stack">Zoom <select id="toothEditZoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
-            <label class="row row--stack">Background <select id="toothEditBackground"><option value="marked">Original hand-marked image</option><option value="clean">Clean image</option><option value="mask">Black mask background</option></select></label>
-            <label class="row row--stack">Mask opacity <input id="toothEditOpacity" type="range" min="0" max="1" step="0.05" value="0.55" /></label>
+            <label class="row row--stack">Shared background (editor + results) <select id="toothEditBackground"><option value="marked">Original hand-marked image</option><option value="clean">Clean image</option><option value="mask">Black mask background</option></select></label>
+            <label class="row row--stack">Mask opacity (editor + results) <input id="toothEditOpacity" type="range" min="0" max="1" step="0.05" value="0.55" /></label>
           </div>
           <div class="buttons buttons--wrap">
             <button id="toothEditNew" class="btn" type="button">New tooth</button><button id="toothEditDelete" class="btn" type="button">Delete selected tooth</button>
             <button id="toothEditUndo" class="btn" type="button" disabled>Undo</button><button id="toothEditFill" class="btn" type="button">Fill polygon</button><button id="toothEditCancel" class="btn" type="button">Cancel polygon</button>
           </div>
-          <div class="tooth-editor-viewport"><canvas id="toothEditCanvas" aria-label="Paint, erase or outline pixels for the selected ground-truth tooth"></canvas></div>
+          <label class="row"><input id="toothEditPrediction" type="checkbox" checked /> Show model outline on editable ground truth</label>
+          <p id="toothEditPredictionNote" class="hint">Run Detect &amp; compare to see the model outline directly over your editable ground truth.</p>
+          <div class="tooth-editor-viewport"><canvas id="toothEditCanvas" aria-label="Editable ground-truth teeth with model prediction outlines"></canvas></div>
+          <p class="hint">Comparison uses these exact edited pixels. The background is shared with every result below; switching it never moves labels or changes scores. Use Clean image to check alignment with the photo the model sees. Both uploads must show teeth at the same pixel positions.</p>
           <p class="hint">Edits update comparison scores immediately and survive Detect &amp; compare. Changing images, crop, extraction settings, or Extract / reset clears edits. Save labels before reloading. Editing labels changes the evaluation, not the model.</p>
           <button id="uploadLabelsJson" class="btn" type="button">Save editable tooth labels (JSON)</button>
           <label class="row row--stack">Restore saved labels for this image and crop <input id="uploadRestoreLabels" type="file" accept="application/json,.json" /></label>
@@ -95,7 +98,7 @@
         <div id="uploadMasks" hidden>
           <p id="uploadExtractionNote" class="hint"></p>
           <div class="gt-images">
-            <figure><figcaption>Ground-truth teeth — individual T labels</figcaption><canvas id="uploadGtCanvas" aria-label="Separate ground-truth teeth"></canvas></figure>
+            <figure><figcaption>Your exact edited ground truth — T labels</figcaption><canvas id="uploadGtCanvas" aria-label="Separate ground-truth teeth"></canvas></figure>
             <figure id="uploadPredictionFigure" hidden><figcaption>Model teeth — individual P labels</figcaption><canvas id="uploadPredCanvas" aria-label="Separate predicted teeth"></canvas></figure>
           </div>
           <button id="uploadGtPng" class="btn" type="button">Download ground-truth mask</button>
