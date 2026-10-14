@@ -86,6 +86,13 @@ body {
 .preview-column { min-width: 0; display: grid; gap: 14px; }
 .gt-comparison h2 { margin: 0; font-size: 18px; }
 #uploadSelection { touch-action: none; cursor: crosshair; }
+.tooth-editor-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.tooth-editor-viewport { max-height: 65vh; overflow: auto; margin-top: 12px; border: 1px solid var(--line); }
+#toothEditCanvas { touch-action: none; cursor: crosshair; max-width: none; image-rendering: pixelated; }
+.tooth-result-scroll { overflow-x: auto; }
+.tooth-result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tooth-result-table th, .tooth-result-table td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.tooth-result-table th { color: var(--muted); white-space: nowrap; }
 #gtUploadPanel input[type="file"] { max-width: 100%; }
 #gtUploadPanel > .buttons { margin-top: 12px; }
 .gt-comparison a { color: var(--accent); }

@@ -1201,7 +1201,7 @@ hand-marked `photo_area.jpg` reference:
   annotated copy of the same dimensions (up to 4 megapixels / 25 MB per file).
   Draw a crop around one mouth on the clean-image preview, or use the whole
   image for a close-up. Choose colored closed outlines or a white-on-black mask.
-  **Preview ground truth** fills enclosed outlines and shows the extracted mask;
+  **Extract / reset ground truth** fills enclosed outlines and shows the extracted mask;
   adjust line color, minimum color difference or gap repair if needed.
   **Detect & compare** runs the selected detector on clean pixels only and
   displays GT, predictions, pixel errors, IoU, Dice, precision and recall.
@@ -1211,6 +1211,31 @@ hand-marked `photo_area.jpg` reference:
   For collages, evaluate one selected mouth at a time. The upload extractor
   applies generic gap repair, not the built-in reference's hand-reviewed gap
   correction; inspect its mask rather than assuming identical scores.
+
+Uploaded outlines now retain one instance ID per enclosed box, including adjacent
+boxes sharing the same line color. Progressive gap repair can recover missed
+loops and dividing lines without merging discovered teeth. Broad blue hues are
+included to preserve blue/purple separators. Extraction is still approximate:
+review each T label against the original marks, remove artifacts, and add any
+remaining missing tooth with the editor.
+
+The ground-truth editor supports selecting/picking a tooth, New tooth, brush
+painting, pixel erasing, polygon fill, deleting a tooth, undo, opacity, 1–8× zoom,
+and annotated/clean/black backgrounds. Painting assigns pixels to the selected ID;
+painting over another label transfers ownership. Undo stores up to 20 masks within
+a 64 MB history budget. Detect & compare retains edits; extraction reset, changed
+files/crop/settings clear them. Save editable labels as run-length encoded JSON
+and restore them for the same clean filename and crop. Binary PNG exports remain
+available; the JSON preserves separate IDs even when teeth touch.
+
+The overall metrics still compare the binary union of all teeth. The per-tooth
+table uses one-to-one maximum-total-IoU matching between GT instances (T IDs) and
+the detector's actual instances (P IDs). It lists IoU, Dice, precision, recall,
+misses, low-overlap matches and extra predictions; IoU ≥ 0.5 counts as a match.
+Merge/split notes require at least 10% coverage of a GT tooth. Ground truth never
+splits model predictions or feeds inference. Editing labels recalculates results
+against the cached prediction immediately; this changes the evaluation labels,
+not the model. T/P numbers are local annotation/detection IDs, not FDI numbers.
 
 Photo testing uses a separate detector session, fixed mouth crops and the
 reconstructed filled mask. It does not change the live detector, train on the

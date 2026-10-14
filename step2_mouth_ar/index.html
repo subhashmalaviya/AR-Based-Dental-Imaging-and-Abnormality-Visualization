@@ -55,7 +55,7 @@
             <input id="uploadDifference" type="range" min="0" max="100" step="1" value="20" /></label>
           <label class="row row--stack">Repair small outline gaps
             <select id="uploadGap"><option value="0">Off</option><option value="1">Small (1 px radius)</option><option value="2" selected>Medium (2 px radius)</option><option value="3">Large (3 px radius)</option><option value="5">Very large (5 px radius)</option></select></label>
-          <p class="hint">Draw closed loops around each tooth using a contrasting color. Open outlines may be missed; large gap repair can merge regions. Binary masks give more precise labels.</p>
+          <p class="hint">Each enclosed box becomes a separate tooth ID, even when boxes share a color. Extra gap-repair passes recover missing loops while preserving existing IDs. Check the result in the editor; wide gaps may still need manual filling.</p>
         </details>
         <div id="uploadInputPreview" hidden>
           <div class="gt-images">
@@ -67,23 +67,49 @@
           <p class="hint">For a full face or a collage, select one mouth at a time. Detection and scoring use only the selected rectangle. Keep complete outlines inside it.</p>
         </div>
         <div class="buttons buttons--wrap">
-          <button id="uploadPreview" class="btn" type="button" disabled>Preview ground truth</button>
+          <button id="uploadPreview" class="btn" type="button" disabled>Extract / reset ground truth</button>
           <button id="uploadRun" class="btn btn--primary" type="button" disabled>Detect &amp; compare</button>
         </div>
         <p id="uploadStatus" class="hint" role="status" aria-live="polite">Choose both matching images.</p>
+        <section id="uploadEditor" hidden aria-label="Edit individual ground-truth teeth">
+          <h3>Edit ground-truth teeth</h3>
+          <p id="toothEditCount" class="hint"></p>
+          <p class="hint">Pick a tooth and paint missing pixels in its color. For a missing box, click <strong>New tooth</strong>, then paint or click around its boundary with <strong>Outline polygon</strong> and <strong>Fill polygon</strong>. Painting over another tooth transfers those pixels to the selected ID.</p>
+          <div class="tooth-editor-controls">
+            <label class="row row--stack">Tooth <select id="toothEditSelect"></select></label>
+            <label class="row row--stack">Tool <select id="toothEditTool"><option value="paint">Paint selected tooth</option><option value="erase">Erase pixels</option><option value="pick">Pick tooth from mask</option><option value="polygon">Outline polygon</option></select></label>
+            <label class="row row--stack">Brush radius (pixels) <input id="toothEditBrush" type="number" min="1" max="60" step="1" value="5" /></label>
+            <label class="row row--stack">Zoom <select id="toothEditZoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
+            <label class="row row--stack">Background <select id="toothEditBackground"><option value="marked">Original hand-marked image</option><option value="clean">Clean image</option><option value="mask">Black mask background</option></select></label>
+            <label class="row row--stack">Mask opacity <input id="toothEditOpacity" type="range" min="0" max="1" step="0.05" value="0.55" /></label>
+          </div>
+          <div class="buttons buttons--wrap">
+            <button id="toothEditNew" class="btn" type="button">New tooth</button><button id="toothEditDelete" class="btn" type="button">Delete selected tooth</button>
+            <button id="toothEditUndo" class="btn" type="button" disabled>Undo</button><button id="toothEditFill" class="btn" type="button">Fill polygon</button><button id="toothEditCancel" class="btn" type="button">Cancel polygon</button>
+          </div>
+          <div class="tooth-editor-viewport"><canvas id="toothEditCanvas" aria-label="Paint, erase or outline pixels for the selected ground-truth tooth"></canvas></div>
+          <p class="hint">Edits update comparison scores immediately and survive Detect &amp; compare. Changing images, crop, extraction settings, or Extract / reset clears edits. Save labels before reloading. Editing labels changes the evaluation, not the model.</p>
+          <button id="uploadLabelsJson" class="btn" type="button">Save editable tooth labels (JSON)</button>
+          <label class="row row--stack">Restore saved labels for this image and crop <input id="uploadRestoreLabels" type="file" accept="application/json,.json" /></label>
+        </section>
         <div id="uploadMasks" hidden>
           <p id="uploadExtractionNote" class="hint"></p>
           <div class="gt-images">
-            <figure><figcaption>Extracted ground truth (yellow)</figcaption><canvas id="uploadGtCanvas" aria-label="Extracted ground-truth regions"></canvas></figure>
-            <figure id="uploadPredictionFigure" hidden><figcaption>Model prediction (cyan)</figcaption><canvas id="uploadPredCanvas" aria-label="Model prediction on clean image"></canvas></figure>
+            <figure><figcaption>Ground-truth teeth — individual T labels</figcaption><canvas id="uploadGtCanvas" aria-label="Separate ground-truth teeth"></canvas></figure>
+            <figure id="uploadPredictionFigure" hidden><figcaption>Model teeth — individual P labels</figcaption><canvas id="uploadPredCanvas" aria-label="Separate predicted teeth"></canvas></figure>
           </div>
           <button id="uploadGtPng" class="btn" type="button">Download ground-truth mask</button>
         </div>
         <div id="uploadResults" hidden>
+          <h3>Overall pixel comparison</h3>
           <dl class="gt-metrics">
             <div><dt>IoU</dt><dd id="upload_iou">—</dd></div><div><dt>Dice</dt><dd id="upload_dice">—</dd></div>
             <div><dt>Precision</dt><dd id="upload_precision">—</dd></div><div><dt>Recall</dt><dd id="upload_recall">—</dd></div>
           </dl>
+          <h3>Individual tooth comparison</h3>
+          <p id="uploadToothSummary" class="hint"></p>
+          <p class="hint">Each GT tooth is matched to at most one model tooth by overlap. Missed teeth and unmatched predictions remain visible. A model region spanning several teeth is reported as a merge; ground truth is never used to split the model output.</p>
+          <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>IoU</th><th>Dice</th><th>Precision</th><th>Recall</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
           <figure><figcaption>Green: overlap · Red: extra prediction · Blue: missed ground truth</figcaption><canvas id="uploadErrorCanvas" aria-label="Pixel comparison"></canvas></figure>
           <p class="hint">Scores assume all teeth in the selected region are marked and both images are aligned. Unmarked pixels count as background.</p>
           <div class="buttons"><button id="uploadJson" class="btn" type="button">Download scores (JSON)</button><button id="uploadPredPng" class="btn" type="button">Download prediction mask</button></div>

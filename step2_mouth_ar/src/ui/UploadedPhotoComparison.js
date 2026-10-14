@@ -1,7 +1,9 @@
 import { LearnedToothDetector } from '../core/LearnedToothDetector.js';
 import { ToothSegmenter } from '../core/ToothSegmenter.js';
-import { extractUploadTruth, resizeBinaryMask, rgbHue } from '../eval/uploadGroundTruth.js';
+import { extractUploadTruth, rgbHue } from '../eval/uploadGroundTruth.js';
 import { scoreReferenceOverlap } from '../eval/liveReference.js';
+import { binaryFromLabels, resizeInstanceLabels, compareInstances, encodeLabels, decodeLabels, instanceStats } from '../eval/toothInstances.js';
+import { ToothMaskEditor, drawInstances } from './ToothMaskEditor.js';
 
 const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 const percent = n => n == null ? '—' : `${(n * 100).toFixed(2)}%`;
@@ -22,6 +24,32 @@ export class UploadedPhotoComparison {
     Object.assign(this, { root, modelUrl, getDetector, setBusy });
     this.el = id => root.querySelector(`#${id}`);
     this.revision = 0;
+    this.editor = new ToothMaskEditor(this.el('uploadEditor'), labels => {
+      this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
+      this.updateComparison();
+      this.el('uploadStatus').textContent = 'Ground truth updated. Overall and per-tooth scores use your edited labels. Detect & compare keeps these edits.';
+    });
+    this.el('uploadLabelsJson').addEventListener('click', () => {
+      if (!this.truthLabels) return;
+      this.download(new Blob([JSON.stringify({ schema: 'tooth-labels/1', cleanImage: this.cleanName,
+        crop: this.crop, width: this.crop[2], height: this.crop[3], labels: encodeLabels(this.truthLabels) })],
+      { type: 'application/json' }), 'editable-tooth-labels.json');
+    });
+    this.el('uploadRestoreLabels').addEventListener('change', async e => {
+      const file = e.target.files[0]; if (!file || !this.input) return;
+      try {
+        if (file.size > 40_000_000) throw new Error('Label file is too large');
+        const doc = JSON.parse(await file.text());
+        if (doc.schema !== 'tooth-labels/1' || doc.cleanImage !== this.cleanName || JSON.stringify(doc.crop) !== JSON.stringify(this.crop)
+          || doc.width !== this.input.width || doc.height !== this.input.height) throw new Error('Saved labels must match this clean image and selected crop');
+        const labels = decodeLabels(doc.labels, this.input.width * this.input.height);
+        if (instanceStats(labels, this.input.width).length > 256) throw new Error('Too many tooth labels');
+        this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
+        this.editor.setData(labels, this.input, this.markedCrop); this.updateComparison();
+        this.el('uploadStatus').textContent = 'Saved tooth labels restored.';
+      } catch (error) { this.el('uploadStatus').textContent = `Could not restore labels: ${error.message}`; }
+      e.target.value = '';
+    });
     for (const id of ['uploadClean', 'uploadMarked']) this.el(id).addEventListener('change', () => this.loadPair());
     for (const id of ['uploadFormat', 'uploadColor', 'uploadHue', 'uploadDifference', 'uploadGap']) {
       this.el(id).addEventListener('input', () => this.invalidate());
@@ -60,6 +88,8 @@ export class UploadedPhotoComparison {
 
   invalidate() {
     this.result = null; this.truth = null; this.prediction = null;
+    this.truthLabels = null; this.predictionLabels = null; this.input = null; this.runInfo = null; this.manualEdits = 0;
+    this.el('uploadEditor').hidden = true;
     this.el('uploadResults').hidden = true;
     this.el('uploadMasks').hidden = true;
     this.el('uploadStatus').textContent = this.clean && this.marked
@@ -101,70 +131,108 @@ export class UploadedPhotoComparison {
 
   async run(infer) {
     if (this.busy || !this.clean || !this.marked) return;
-    this.busy = true; this.setBusy(true); this.invalidate();
+    this.busy = true; this.setBusy(true); this.editor.disabled = true;
     this.root.querySelectorAll('input, select, button').forEach(el => { el.disabled = true; });
     let detector;
     try {
-      this.el('uploadStatus').textContent = 'Extracting ground truth…';
+      this.el('uploadStatus').textContent = this.truthLabels && infer ? 'Using your current edited ground truth…' : 'Extracting separate ground-truth teeth…';
       await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
       const rect = this.crop.slice(), [x, y, w, h] = rect;
-      const cleanPixels = this.clean.getContext('2d').getImageData(x, y, w, h);
-      const markedPixels = this.marked.getContext('2d').getImageData(x, y, w, h);
-      const hex = this.el('uploadHue').value;
-      const options = { format: this.el('uploadFormat').value, color: this.el('uploadColor').value,
-        hue: rgbHue(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)),
-        difference: Number(this.el('uploadDifference').value), gap: Number(this.el('uploadGap').value) };
-      const extraction = extractUploadTruth(cleanPixels.data, markedPixels.data, w, h, options);
-      if (options.format === 'outlines' && !extraction.regions) {
-        throw new Error('No closed marked regions found. Check the line color, lower the difference threshold, increase gap repair, or use a white-on-black mask.');
+      // Re-running inference must never discard manually corrected labels.
+      if (!this.truthLabels || !infer) {
+        const cleanPixels = this.clean.getContext('2d').getImageData(x, y, w, h);
+        const markedPixels = this.marked.getContext('2d').getImageData(x, y, w, h);
+        const hex = this.el('uploadHue').value;
+        this.extractionOptions = { format: this.el('uploadFormat').value, color: this.el('uploadColor').value,
+          hue: rgbHue(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)),
+          difference: Number(this.el('uploadDifference').value), gap: Number(this.el('uploadGap').value) };
+        const extraction = extractUploadTruth(cleanPixels.data, markedPixels.data, w, h, this.extractionOptions);
+        if (extraction.regions > 256) throw new Error('More than 256 regions found. Refine the crop or outline color to exclude noise.');
+        this.truthLabels = extraction.labels; this.manualEdits = 0;
+        this.input = canvas(w, h); this.input.getContext('2d').putImageData(cleanPixels, 0, 0);
+        this.markedCrop = canvas(w, h); this.markedCrop.getContext('2d').putImageData(markedPixels, 0, 0);
+        this.editor.setData(this.truthLabels, this.input, this.markedCrop);
+        this.el('uploadExtractionNote').textContent = `${extraction.regions} separate regions extracted; ${extraction.repaired ?? 0} recovered by additional gap repair. Check every box. Add missing teeth or split merged regions with the editor. Binary masks separate only disconnected regions.`;
       }
-      this.truth = extraction.mask;
-      const input = canvas(w, h); input.getContext('2d').putImageData(cleanPixels, 0, 0);
-      this.paint(this.el('uploadGtCanvas'), input, this.truth, null);
       this.el('uploadMasks').hidden = false;
-      this.el('uploadPredictionFigure').hidden = true;
-      const extractionNote = options.format === 'binary' ? 'Binary mask loaded.' : `${extraction.regions} enclosed region(s) extracted; this is not a verified tooth count.`;
-      this.el('uploadExtractionNote').textContent = `${extractionNote} Check the yellow mask against your marks. Outlines produce approximate filled regions.`;
-      if (!infer) { this.el('uploadStatus').textContent = 'Ground-truth preview ready. Adjust extraction settings if needed, then Detect & compare.'; return; }
+      this.el('uploadEditor').hidden = false;
+      this.updateComparison();
+      if (!infer) {
+        this.el('uploadStatus').textContent = 'Each colored T label is one ground-truth tooth. Edit missing pixels or add a tooth, then Detect & compare.';
+        return;
+      }
       const selection = this.getDetector();
-      this.el('uploadStatus').textContent = `Running ${selection.key} detector on the selected clean-image region…`;
+      this.el('uploadStatus').textContent = `Running ${selection.key} detector on the clean image…`;
       detector = selection.key === 'learned' ? new LearnedToothDetector({ modelUrl: this.modelUrl }) : new ToothSegmenter();
       await detector.init?.(); detector.setParams?.(selection.params);
       const W = detector.inputWidth ?? 192, H = detector.inputHeight ?? 144;
       const smallCanvas = canvas(W, H), ctx = smallCanvas.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(input, 0, 0, W, H);
+      ctx.drawImage(this.input, 0, 0, W, H);
       const roi = { width: W, height: H, bounds: { u0: 0, u1: 1, v0: 0, v1: 1 }, roiToLocal: (px, py) => ({ u: px / W, v: py / H }) };
       const image = ctx.getImageData(0, 0, W, H), aperture = new Uint8Array(W * H).fill(255);
       let small;
       if (detector.isAsync) { await detector.detectAsync(image, aperture, roi); small = detector.lastDebug.labels; }
       else {
         const detections = detector.detect(image, aperture, roi);
-        ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff';
-        for (const d of detections) {
+        small = new Int32Array(W * H);
+        for (const [index, d] of detections.entries()) {
+          ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff';
           ctx.beginPath(); d.contour.forEach((p, i) => ctx[i ? 'lineTo' : 'moveTo'](p.u * W, p.v * H)); ctx.closePath(); ctx.fill();
+          const pixels = ctx.getImageData(0, 0, W, H).data;
+          for (let i = 0; i < small.length; i++) if (pixels[i * 4 + 3] >= 128) small[i] = index + 1;
         }
-        const pixels = ctx.getImageData(0, 0, W, H).data;
-        small = Uint8Array.from({ length: W * H }, (_, i) => pixels[i * 4 + 3] >= 128 ? 1 : 0);
       }
-      this.prediction = resizeBinaryMask(small, W, H, w, h);
-      const scores = scoreReferenceOverlap(this.truth, this.prediction);
-      this.paint(this.el('uploadPredCanvas'), input, null, this.prediction);
-      this.paint(this.el('uploadErrorCanvas'), input, this.truth, this.prediction);
-      this.el('uploadPredictionFigure').hidden = false;
-      for (const k of ['iou', 'dice', 'precision', 'recall']) this.el(`upload_${k}`).textContent = percent(scores[k]);
-      this.result = { cleanImage: this.cleanName, groundTruthImage: this.markedName,
-        originalSize: [this.clean.width, this.clean.height], evaluatedRegion: rect, scores,
-        detector: selection.key, parameters: detector.params ?? selection.params,
-        extraction: options, enclosedRegions: extraction.regions,
-        scope: 'Selected region only. All unmarked pixels are background. Image alignment is assumed, not estimated.',
+      this.predictionLabels = resizeInstanceLabels(small, W, H, w, h);
+      this.runInfo = { detector: selection.key, parameters: detector.params ?? selection.params,
         modelInput: [W, H], timestamp: new Date().toISOString() };
-      this.el('uploadResults').hidden = false;
-      this.el('uploadStatus').textContent = `Finished using ${selection.key}. Compared ${w} × ${h} pixels in the selected region. Files stay in this browser.`;
+      this.updateComparison();
+      this.el('uploadStatus').textContent = `Finished using ${selection.key}. Compared ${w} × ${h} pixels. Ground-truth edits update scores immediately without changing the model prediction.`;
     } catch (error) { this.el('uploadStatus').textContent = `Comparison failed: ${error.message}`; }
     finally {
-      detector?.dispose?.(); this.busy = false; this.setBusy(false);
+      detector?.dispose?.(); this.busy = false; this.setBusy(false); this.editor.disabled = false;
       this.root.querySelectorAll('input, select, button').forEach(el => { el.disabled = false; });
+      if (this.truthLabels) this.editor.refresh();
     }
+  }
+
+  updateComparison() {
+    if (!this.truthLabels || !this.input) return;
+    this.truth = binaryFromLabels(this.truthLabels);
+    drawInstances(this.el('uploadGtCanvas'), this.input, this.truthLabels, 'T');
+    this.el('uploadMasks').hidden = false;
+    this.el('uploadPredictionFigure').hidden = !this.predictionLabels;
+    if (!this.predictionLabels) { this.el('uploadResults').hidden = true; return; }
+    this.prediction = binaryFromLabels(this.predictionLabels);
+    const scores = scoreReferenceOverlap(this.truth, this.prediction);
+    const perTooth = compareInstances(this.truthLabels, this.predictionLabels, this.input.width);
+    drawInstances(this.el('uploadPredCanvas'), this.input, this.predictionLabels, 'P');
+    this.paint(this.el('uploadErrorCanvas'), this.input, this.truth, this.prediction);
+    for (const k of ['iou', 'dice', 'precision', 'recall']) this.el(`upload_${k}`).textContent = percent(scores[k]);
+    this.result = { cleanImage: this.cleanName, groundTruthImage: this.markedName,
+      originalSize: [this.clean.width, this.clean.height], evaluatedRegion: this.crop.slice(), scores, perTooth,
+      ...this.runInfo, extraction: this.extractionOptions, manualEditOperations: this.manualEdits,
+      scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall scores use binary unions.' };
+    this.el('uploadToothSummary').textContent = `${perTooth.groundTruthCount} GT teeth · ${perTooth.predictionCount} model teeth · ${perTooth.matchedAt50} matched at IoU ≥ 50% · ${perTooth.extraPredictions.length} unmatched predictions`;
+    const body = this.el('uploadToothRows'); body.replaceChildren();
+    for (const row of perTooth.rows) {
+      const notes = [row.status];
+      if (row.mergedWith.length) notes.push(`model merged T${row.mergedWith.join(', T')}`);
+      if (row.splitAcross.length) notes.push(`GT split across P${row.splitAcross.join(', P')}`);
+      const tr = document.createElement('tr');
+      for (const value of [`T${row.groundTruth}`, row.prediction == null ? '—' : `P${row.prediction}`,
+        percent(row.iou), percent(row.dice), percent(row.precision), percent(row.recall), notes.join('; ')]) {
+        const td = document.createElement('td'); td.textContent = value; tr.append(td);
+      }
+      body.append(tr);
+    }
+    for (const p of perTooth.extraPredictions) {
+      const tr = document.createElement('tr');
+      for (const value of ['—', `P${p.id}`, '0%', '0%', '0%', '—', 'Unmatched prediction']) {
+        const td = document.createElement('td'); td.textContent = value; tr.append(td);
+      }
+      body.append(tr);
+    }
+    this.el('uploadResults').hidden = false;
   }
 
   paint(c, input, truth, pred) {
