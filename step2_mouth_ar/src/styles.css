@@ -102,6 +102,7 @@ body {
 .gt-comparison figcaption { margin-bottom: 6px; font-size: 12px; color: var(--muted); }
 .gt-comparison canvas, .gt-comparison img { display: block; width: 100%; height: auto; border-radius: 8px; }
 .gt-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.gt-metrics.gt-metrics--single { grid-template-columns: 1fr; max-width: 340px; }
 .gt-metrics > div { background: var(--panel-2); border-radius: 8px; padding: 10px; }
 .gt-metrics dt { color: var(--muted); font-size: 12px; }
 .gt-metrics dd { margin: 0; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }

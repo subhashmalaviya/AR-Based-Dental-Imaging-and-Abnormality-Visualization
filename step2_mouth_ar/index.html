@@ -82,7 +82,10 @@
             <label class="row row--stack">Zoom <select id="toothEditZoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
             <label class="row row--stack">Shared background (editor + results) <select id="toothEditBackground"><option value="marked">Original hand-marked image</option><option value="clean">Clean image</option><option value="mask">Black mask background</option></select></label>
             <label class="row row--stack">Mask opacity (editor + results) <input id="toothEditOpacity" type="range" min="0" max="1" step="0.05" value="0.55" /></label>
+            <label class="row"><input id="toothEditGrayscale" type="checkbox" /> Grayscale photo</label>
+            <label class="row row--stack">Photo contrast <output id="toothEditContrastValue">1.00×</output><input id="toothEditContrast" type="range" min="0.5" max="3" step="0.05" value="1" /></label>
           </div>
+          <p class="hint">Grayscale and contrast enhance the shared photo background for editing. Annotation colors, original model input and comparison scores stay unchanged.</p>
           <div class="buttons buttons--wrap">
             <button id="toothEditNew" class="btn" type="button">New tooth</button><button id="toothEditDelete" class="btn" type="button">Delete selected tooth</button>
             <button id="toothEditUndo" class="btn" type="button" disabled>Undo</button><button id="toothEditFill" class="btn" type="button">Fill polygon</button><button id="toothEditCancel" class="btn" type="button">Cancel polygon</button>
@@ -104,15 +107,16 @@
           <button id="uploadGtPng" class="btn" type="button">Download ground-truth mask</button>
         </div>
         <div id="uploadResults" hidden>
-          <h3>Overall pixel comparison</h3>
-          <dl class="gt-metrics">
-            <div><dt>IoU</dt><dd id="upload_iou">—</dd></div><div><dt>Dice</dt><dd id="upload_dice">—</dd></div>
-            <div><dt>Precision</dt><dd id="upload_precision">—</dd></div><div><dt>Recall</dt><dd id="upload_recall">—</dd></div>
+          <h3>Overall boundary comparison</h3>
+          <dl class="gt-metrics gt-metrics--single">
+            <div><dt>Normalized boundary error (0–1)</dt><dd id="uploadBoundaryError">—</dd></div>
           </dl>
+          <p class="hint">0 = exact boundary match. Lower is better. This number is the average distance between the two boundaries divided by the selected image region’s diagonal. Use the same region when comparing runs.</p>
+          <p id="uploadBoundaryStatus" class="hint" role="status"></p>
           <h3>Individual tooth comparison</h3>
           <p id="uploadToothSummary" class="hint"></p>
           <p class="hint">Each GT tooth is matched to at most one model tooth by overlap. Missed teeth and unmatched predictions remain visible. A model region spanning several teeth is reported as a merge; ground truth is never used to split the model output.</p>
-          <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>IoU</th><th>Dice</th><th>Precision</th><th>Recall</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
+          <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>Boundary error (0–1)</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
           <figure><figcaption>Green: overlap · Red: extra prediction · Blue: missed ground truth</figcaption><canvas id="uploadErrorCanvas" aria-label="Pixel comparison"></canvas></figure>
           <p class="hint">Scores assume all teeth in the selected region are marked and both images are aligned. Unmarked pixels count as background.</p>
           <div class="buttons"><button id="uploadJson" class="btn" type="button">Download scores (JSON)</button><button id="uploadPredPng" class="btn" type="button">Download prediction mask</button></div>

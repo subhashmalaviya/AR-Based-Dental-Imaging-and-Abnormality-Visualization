@@ -78,6 +78,8 @@ test('editor, results and scores share exact edited labels across background cha
   app.editor.setData(gt, clean, marked);
   app.updateComparison();
   assert.equal(app.result.scores.iou, 0.5);
+  assert.ok(app.result.boundary.assdPx > 0);
+  assert.equal(app.result.boundary.assdMm, null);
   assert.deepEqual(rgba(get('#toothEditCanvas')), rgba(get('#uploadGtCanvas')));
   assert.equal(rgba(get('#uploadGtCanvas'))[0], 90, 'results use marked background just like the editor');
 
@@ -87,6 +89,10 @@ test('editor, results and scores share exact edited labels across background cha
   assert.strictEqual(app.truthLabels, app.editor.labels);
   assert.equal(app.result.scores.iou, 1);
   assert.equal(app.result.perTooth.rows[0].iou, 1);
+  assert.equal(app.result.boundary.assdPx, 0);
+  assert.equal(get('#uploadBoundaryError').textContent, '0');
+  assert.equal(get('#uploadToothRows').children[0].children[2].textContent, '0');
+  assert.equal(app.result.perTooth.rows[0].boundary.assdPx, 0);
   assert.deepEqual([...app.truth], [...app.editor.labels]);
   const savedResult = app.result;
   for (const background of ['clean', 'mask', 'marked']) {
@@ -101,6 +107,14 @@ test('editor, results and scores share exact edited labels across background cha
   get('#toothEditOpacity').events.input();
   assert.deepEqual(rgba(get('#uploadGtCanvas')), rgba(marked));
   assert.equal(app.result.scores.iou, 1, 'invisible mask still scores the edited labels');
+  get('#toothEditGrayscale').checked = true;
+  get('#toothEditContrast').value = '1.5';
+  get('#toothEditGrayscale').events.input();
+  assert.strictEqual(app.result, savedResult, 'display enhancement never recomputes scores');
+  assert.equal(rgba(marked)[0], 90, 'marked source remains unchanged');
+  assert.equal(rgba(clean)[0], 20, 'inference image remains unchanged');
+  assert.notEqual(rgba(get('#toothEditCanvas'))[0], 90);
+  assert.deepEqual(rgba(get('#toothEditCanvas')), rgba(get('#uploadGtCanvas')));
   get('#toothEditPrediction').checked = true;
   get('#toothEditPrediction').events.change();
   assert.deepEqual([...rgba(get('#toothEditCanvas')).slice(24, 28)], [255, 90, 54, 255]);
@@ -110,4 +124,14 @@ test('editor, results and scores share exact edited labels across background cha
   assert.strictEqual(app.truthLabels, app.editor.labels, 'scores follow the replacement array');
   assert.equal(app.result.scores.iou, 0.5);
   assert.equal(app.result.perTooth.rows[0].iou, 0.5);
+  assert.equal(app.result.normalizedBoundaryError, app.result.boundary.normalizedAssd);
+  assert.ok(Number(get('#uploadBoundaryError').textContent) > 0);
+  assert.equal(get('#uploadToothRows').children[0].children.length, 4);
+  const row = app.result.perTooth.rows[0];
+  assert.equal(row.normalizedBoundaryError, row.boundary.normalizedAssd);
+  assert.equal(Number(get('#uploadToothRows').children[0].children[2].textContent), Number(row.normalizedBoundaryError.toPrecision(4)));
+  app.predictionLabels = new Int32Array(15);
+  app.updateComparison();
+  assert.equal(get('#uploadBoundaryError').textContent, '—');
+  assert.equal(get('#uploadToothRows').children[0].children[2].textContent, '—');
 });

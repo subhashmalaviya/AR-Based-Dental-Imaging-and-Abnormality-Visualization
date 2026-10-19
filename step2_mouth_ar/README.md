@@ -1204,7 +1204,7 @@ hand-marked `photo_area.jpg` reference:
   **Extract / reset ground truth** fills enclosed outlines and shows the extracted mask;
   adjust line color, minimum color difference or gap repair if needed.
   **Detect & compare** runs the selected detector on clean pixels only and
-  displays GT, predictions, pixel errors, IoU, Dice, precision and recall.
+  displays GT, predictions, pixel errors and normalized boundary error.
   Scoring covers only the selected crop, treating unmarked pixels as background.
   JSON records filenames, original size, crop, settings and confusion counts;
   downloaded PNG masks use crop coordinates. Files are processed locally.
@@ -1239,14 +1239,37 @@ GT against the inference input: equal image dimensions alone do not guarantee
 that the teeth in two uploaded images are aligned. Inference always sees the
 clean crop, regardless of the display background.
 
-The overall metrics still compare the binary union of all teeth. The per-tooth
-table uses one-to-one maximum-total-IoU matching between GT instances (T IDs) and
-the detector's actual instances (P IDs). It lists IoU, Dice, precision, recall,
-misses, low-overlap matches and extra predictions; IoU ≥ 0.5 counts as a match.
-Merge/split notes require at least 10% coverage of a GT tooth. Ground truth never
-splits model predictions or feeds inference. Editing labels recalculates results
-against the cached prediction immediately; this changes the evaluation labels,
-not the model. T/P numbers are local annotation/detection IDs, not FDI numbers.
+The editor also provides **Grayscale photo** and **Photo contrast** (0.5–3×).
+They enhance a separate display copy of the shared background to help inspect
+enamel edges. Overlay colors, original inference pixels, labels and scores stay
+unchanged. The existing zoom, crop, inference and raster-outline behavior is
+preserved.
+
+**Normalized boundary error** is the single score shown overall and for each
+paired tooth. It is the average symmetric nearest-boundary distance (pooled
+ASSD) divided by the selected crop diagonal: a unitless number from 0 to 1,
+where 0 is an exact boundary match and smaller is better. The same crop diagonal
+is used for the overall score and every tooth. Compare runs with the same crop;
+changing the crop changes the normalization. The display uses four significant
+digits so small positive errors do not round to a false zero.
+
+Boundaries are 4-neighbor pixel centers, including touching-tooth separators.
+The exact Euclidean distance transform follows
+[Felzenszwalb and Huttenlocher](https://www.cs.cornell.edu/~dph/papers/dt.pdf).
+Missing boundaries show unavailable (—), never zero. Each GT tooth is paired to
+at most one model instance using the existing maximum-total-IoU assignment;
+this assignment identifies pairs, while the displayed score measures boundary
+distance. Missed/unmatched teeth and split/merge notes remain visible. Overall
+boundary comparison includes all boundary samples without assigning identities.
+
+The upload results show a single normalized-error card and a four-column table:
+GT tooth, model tooth, boundary error, status. The previous IoU, Dice, precision,
+recall, pixel/mm distance displays and calibration input have been removed.
+Grayscale and contrast remain available. Downloads include
+`normalizedBoundaryError` overall and per pair, with raw diagnostic metrics and
+metric definitions retained in JSON. Edits and undo recompute against the cached
+prediction; display changes do not change scores. T/P labels are local IDs, not
+anatomical tooth numbers.
 
 Photo testing uses a separate detector session, fixed mouth crops and the
 reconstructed filled mask. It does not change the live detector, train on the

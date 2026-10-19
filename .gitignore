@@ -84,6 +84,7 @@ step2_mouth_ar/tools/train/_data/
 testoutputs/
 step2_mouth_ar/scratch/
 ChatGPT Image*.png
+Screencast*.webm
 crop_*.jpg
 fine_grid_*.jpg
 grid_*.jpg

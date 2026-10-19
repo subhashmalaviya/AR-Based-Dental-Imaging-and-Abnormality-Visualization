@@ -1,3 +1,4 @@
+import { enhancePixels } from './photoEnhancement.js';
 import { instanceStats, paintLabelStroke } from '../eval/toothInstances.js';
 
 export function toothColor(id) {
@@ -60,7 +61,7 @@ export class ToothMaskEditor {
       this.labels = this.history.pop(); this.points = []; this.changed();
     });
     this.el('toothEditZoom').addEventListener('input', e => { this.canvas.style.width = `${Number(e.target.value) * 100}%`; });
-    for (const id of ['toothEditOpacity', 'toothEditBackground']) this.el(id).addEventListener('input', () => {
+    for (const id of ['toothEditOpacity', 'toothEditBackground', 'toothEditGrayscale', 'toothEditContrast']) this.el(id).addEventListener('input', () => {
       this.draw(); onViewChange();
     });
     this.el('toothEditPrediction').addEventListener('change', () => this.draw());
@@ -85,7 +86,7 @@ export class ToothMaskEditor {
 
   setData(labels, clean, marked) {
     Object.assign(this, { labels, clean, marked, width: clean.width, height: clean.height,
-      history: [], points: [], drawing: false, prediction: null, blackBackground: null });
+      history: [], points: [], drawing: false, prediction: null, blackBackground: null, enhancedView: null });
     const ids = instanceStats(labels, this.width).map(s => s.id);
     this.selected = ids[0] ?? 1; this.nextId = ids.reduce((max, id) => Math.max(max, id), 1) + 1;
     this.refresh(); this.draw();
@@ -154,6 +155,20 @@ export class ToothMaskEditor {
         const ctx = this.blackBackground.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, this.width, this.height);
       }
       background = this.blackBackground;
+    }
+    const grayscale = this.el('toothEditGrayscale').checked;
+    const contrast = Number(this.el('toothEditContrast').value) || 1;
+    this.el('toothEditContrastValue').textContent = `${contrast.toFixed(2)}×`;
+    if (grayscale || contrast !== 1) {
+      const cached = this.enhancedView;
+      if (!cached || cached.source !== background || cached.grayscale !== grayscale || cached.contrast !== contrast) {
+        const enhanced = document.createElement('canvas'); enhanced.width = this.width; enhanced.height = this.height;
+        const ctx = enhanced.getContext('2d'); ctx.drawImage(background, 0, 0);
+        const image = ctx.getImageData(0, 0, this.width, this.height);
+        image.data.set(enhancePixels(image.data, grayscale, contrast)); ctx.putImageData(image, 0, 0);
+        this.enhancedView = { source: background, grayscale, contrast, enhanced };
+      }
+      background = this.enhancedView.enhanced;
     }
     return { background, opacity: Number(this.el('toothEditOpacity').value) };
   }
