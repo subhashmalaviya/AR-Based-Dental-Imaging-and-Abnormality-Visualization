@@ -85,6 +85,12 @@ export class TrackingSmoother {
       alive.add(t.id);
       const b = this._bank(t.id);
 
+      // Track hits increment only for a new detector observation. Re-feeding
+      // a cached measurement at display FPS makes smoothing depend on monitor
+      // refresh rate and repeatedly reinforces the same noisy boundary.
+      if (Number.isFinite(t.hits) && b.lastHits === t.hits && t.smoothed) continue;
+      b.lastHits = t.hits;
+
       const cu = b.u.filter(t.center.u, tSec);
       const cv = b.v.filter(t.center.v, tSec);
 

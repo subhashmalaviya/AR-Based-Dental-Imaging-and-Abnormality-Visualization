@@ -191,6 +191,17 @@ export class ToothPipeline {
     this.lighting = { p97: v, low: v < LOW_LIGHT };
   }
 
+  _invalidateObservation() {
+    // Closing the mouth or losing its geometry ends the current observation.
+    // Retain the in-flight promise (no parallel calls on the same detector),
+    // but reject its eventual result and any already-completed pending result.
+    this._gen += 1;
+    this._pending = null;
+    this.lastComparisonFrame = null;
+    this.lastDetections = [];
+    this.anchors3D.clear();
+  }
+
   _noteDetection(ms) {
     const now = performance.now();
     this._detectTimes.push(now);
@@ -218,6 +229,7 @@ export class ToothPipeline {
     const pose = anchor?.getPose();
     if (!landmarks || !mouth || !pose) {
       this.reason = 'no mouth';
+      this._invalidateObservation();
       // Keep tracks alive briefly rather than wiping them on a single dropout.
       this.tracker.update([]);
       this.smoother.apply(this.tracker.tracks, tSec);
@@ -228,6 +240,7 @@ export class ToothPipeline {
     // more honest than segmenting lip highlights and calling them teeth.
     if ((mouth.opening?.ratio ?? 0) < 0.10) {
       this.reason = 'mouth closed';
+      this._invalidateObservation();
       this.tracker.update([]);
       this.smoother.apply(this.tracker.tracks, tSec);
       return this._finish(t0, 0);
@@ -235,6 +248,7 @@ export class ToothPipeline {
 
     if (!this.roi.computeBounds(landmarks, pose, frameW, frameH)) {
       this.reason = 'roi failed';
+      this._invalidateObservation();
       this.tracker.update([]);
       this.smoother.apply(this.tracker.tracks, tSec);
       return this._finish(t0, 0);
@@ -269,7 +283,7 @@ export class ToothPipeline {
               this._pending = { dets: dets ?? [], jawRef: snap.jawRef };
               this._noteDetection(performance.now() - started);
             })
-            .catch((err) => { this.lastError = err; })
+            .catch((err) => { if (gen === this._gen) this.lastError = err; })
             .finally(() => { if (this._inflight === job) this._inflight = null; });
           this._inflight = job;
         }

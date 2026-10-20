@@ -1,0 +1,11 @@
+{
+  "samples": [
+    {
+      "id": "saved_upper_reference",
+      "group": "provided_reference_pair",
+      "split": "test",
+      "image": "../../Pasted image (5).png",
+      "labels": "../../editable-tooth-labels.json"
+    }
+  ]
+}

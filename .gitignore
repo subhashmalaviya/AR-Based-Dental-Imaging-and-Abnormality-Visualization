@@ -82,6 +82,8 @@ step2_mouth_ar/tools/train/_data/
 
 # Test output recordings and scratch files
 testoutputs/
+# Local uploaded training/annotation media
+/testvideophoto/
 step2_mouth_ar/scratch/
 ChatGPT Image*.png
 Screencast*.webm

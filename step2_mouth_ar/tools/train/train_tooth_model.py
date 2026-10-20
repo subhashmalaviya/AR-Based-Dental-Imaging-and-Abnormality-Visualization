@@ -289,10 +289,17 @@ def main():
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--seed", type=int, default=5)
     ap.add_argument("--init", help="fine-tune from this state_dict (.pt)")
+    ap.add_argument("--corrections", help="prepared editor-label dataset (prepare_corrections.py output)")
+    ap.add_argument("--correction-fraction", type=float, default=0.2,
+                    help="fraction of each epoch reserved for corrections; remaining samples replay original data")
     ap.add_argument("--lowlight", action="store_true", help="extra low-light augmentation")
     ap.add_argument("--webcam", action="store_true", help="webcam / video-compression augmentation")
     ap.add_argument("--pad-top", type=float, default=None, help="ROI top padding the EP crops were built with (recorded in the model card)")
     a = ap.parse_args()
+    if a.corrections and not a.init:
+        ap.error('--corrections requires --init with a compatible ToothNet checkpoint')
+    if not 0 < a.correction_fraction <= 0.5:
+        ap.error('--correction-fraction must be in (0, 0.5]')
     global LOWLIGHT, WEBCAM
     LOWLIGHT, WEBCAM = a.lowlight, a.webcam
 
@@ -308,7 +315,19 @@ def main():
     ep_tr, ep_va = load("ep_train.npz"), load("ep_val.npz")
     n_da = len(da_tr["img"])
     n_ep = len(ep_tr["img"]) if ep_tr else 0
+    co_va, n_co = None, 0
+    if a.corrections:
+        corrections = Path(a.corrections)
+        co_tr = dict(np.load(corrections / 'corrections_train.npz', allow_pickle=False))
+        co_va = dict(np.load(corrections / 'corrections_valid.npz', allow_pickle=False))
+        n_co = len(co_tr['img'])
+        if not n_co or not len(co_va['img']) or da_va is None or not len(da_va['img']):
+            ap.error('Fine-tuning needs corrected train and independent valid groups plus original validation data')
+        for key in ('img', 'inst'):
+            da_tr[key] = np.concatenate([da_tr[key], co_tr[key]])
     print(f"train: DentalAI {n_da} crops, EasyPortrait {n_ep} crops", flush=True)
+    if n_co:
+        print(f"corrected crops: train {n_co}, valid {len(co_va['img'])}; test is never loaded", flush=True)
 
     net = ToothNet()
     if a.init:
@@ -324,7 +343,9 @@ def main():
     for epoch in range(a.epochs):
         # Balanced sampling: half instance-labelled, half selfie-domain.
         half = a.per_epoch // 2 if n_ep else a.per_epoch
-        items = [("da", random.randrange(n_da)) for _ in range(half)]
+        corrected = min(half, max(1, int(a.per_epoch * a.correction_fraction))) if n_co else 0
+        items = [("da", random.randrange(n_da)) for _ in range(half - corrected)]
+        items += [("da", n_da + random.randrange(n_co)) for _ in range(corrected)]
         items += [("ep", random.randrange(n_ep)) for _ in range(a.per_epoch - half)] if n_ep else []
         random.shuffle(items)
         dl = torch.utils.data.DataLoader(Mixed(da_tr, ep_tr, items, True), batch_size=a.bs,
@@ -343,7 +364,10 @@ def main():
             agg += [loss.item(), ls.item(), lc.item(), lb.item()]
         agg /= max(1, len(dl))
         v = evaluate(net, da_va, ep_va)
+        if co_va is not None:
+            v.update({k.replace('da_', 'corrected_'): value for k, value in evaluate(net, co_va, None).items()})
         score = v.get("ep_teeth_iou", 0) + v.get("da_teeth_iou", 0) + v.get("da_center_f1", 0)
+        score += v.get('corrected_teeth_iou', 0) + v.get('corrected_center_f1', 0)
         rec = {"epoch": epoch + 1, "loss": round(agg[0], 4), "sem": round(agg[1], 4),
                "center": round(agg[2], 4), "boundary": round(agg[3], 4),
                **{k: round(val, 4) for k, val in v.items()}, "secs": round(time.time() - t0, 1)}
@@ -355,6 +379,8 @@ def main():
 
     net.load_state_dict(best)
     val = evaluate(net, da_va, ep_va)
+    if co_va is not None:
+        val.update({k.replace('da_', 'corrected_'): value for k, value in evaluate(net, co_va, None).items()})
     net.eval()          # evaluate() leaves the net in train mode; export must use BN running stats
     onnx_path = out / "tooth_seg.onnx"
     dummy = torch.zeros(1, 3, H, W)
@@ -390,6 +416,10 @@ def main():
         "training": {
             "epochs": a.epochs, "samples_per_epoch": a.per_epoch, "batch": a.bs, "seed": a.seed,
             "init": a.init, "lowlight_augmentation": a.lowlight, "webcam_augmentation": a.webcam,
+            "corrections": {"path": a.corrections, "train_crops": n_co,
+                            "valid_crops": len(co_va['img']) if co_va is not None else 0,
+                            "sample_fraction": a.correction_fraction if n_co else 0,
+                            "test_used": False},
             "torch": torch.__version__,
             "datasets": [
                 {"name": "DentalAI", "license": "CC BY 4.0", "author": "Pawan Valluri (2023)",
