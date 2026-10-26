@@ -1,0 +1,7 @@
+{
+  "baselineId": "current-unet",
+  "exportPredictions": false,
+  "models": [
+    {"id": "current-unet", "kind": "learned", "model": "../../step2_mouth_ar/public/models/tooth_seg.onnx"}
+  ]
+}

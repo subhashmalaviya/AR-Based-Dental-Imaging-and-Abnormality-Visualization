@@ -1277,3 +1277,51 @@ reference, or alter its output. Live comparison transfers the photo mask only
 inside the comparison panel. The bundled reference
 assets and extraction provenance are documented in `public/ground-truth/README.md`.
 
+
+### Vector GT, uploaded videos and Transformer candidates
+
+The photo editor offers **Freehand vector border**: hold and drag one continuous
+loop around a tooth, then release to save a smooth closed curve. Redraw the full
+loop to edit that tooth, or choose **Move border points** and drag the visible
+points for precise adjustments. Release applies the adjusted mask and scores;
+Escape cancels the move. **Undo** and **Redo** restore borders, masks and tooth
+selection. A new edit clears Redo. No point-by-point drawing is needed. SVG
+strokes remain 1 CSS pixel under zoom. The curve is saved in label JSON and used
+directly for normalized bidirectional Euclidean boundary error.
+
+**Upload Video — teeth detection & frame extraction** now produces a playable,
+downloadable WebM showing the original video plus only cyan tooth outlines.
+Choose 10/15/24/30 output FPS (30 by default); the selected implemented detector
+runs on every output frame. Enable **Select a region before processing
+(optional)** and drag the mouth crop, or leave it off to use the whole frame. Output keeps
+native image dimensions and the source timeline, independently of inference
+speed; it omits audio. Play the source video, scrub or enter any timestamp, and
+use **Use this frame for comparison** without processing the video first. This
+opens a clean native crop in the existing image/GT editor. Draw GT, restore label
+JSON or upload a hand-marked copy of the extracted image, then **Detect & compare**.
+**Download clean frame (PNG)** also supports external annotation.
+While processing, **Extract detection frame → GT comparison** opens the exact
+completed inference frame directly in **Your ground truth comparison**. The
+clean crop and model labels are frozen together at the displayed timestamp;
+the prediction appears as orange vector borders immediately. Draw and adjust
+manual GT borders to update error against that saved prediction without rerunning
+the model. Continued video processing cannot change the imported frame or labels.
+**Detect & compare** explicitly replaces it with a new inference result.
+**Download detection frame (PNG)** remains a separate action for saving the
+rendered full frame. The last completed frame remains available after completion
+or Stop. Model predictions are kept separate from manual ground truth.
+
+Video export uses offline VP8 WebCodecs encoding with a canvas WebP/VP8 fallback,
+then writes a seekable WebM with source timestamps and keyframe cues. If neither
+encoder is available, an explicit error suggests Chrome/Edge. Limits: 200 MB
+input, 10 minutes, up to UHD 4K, 250 MB encoded output. Frame extraction for the
+editor is limited to a 4-megapixel crop. Stop discards an incomplete export.
+CLI sampled-frame benchmarks remain available separately. Automated tests check
+freehand gestures/undo/zoom, frame handoff, timestamp scheduling, outline crop
+offsets, and real VP8/WebP WebM decoding/seeking through FFmpeg. Interactive
+browser playback and codec availability still need a manual browser check.
+
+Local RGB dental SegFormer ONNX candidates can be loaded with a model card and
+used by the live, image and video pipelines. No Transformer has been established
+as better or selected by default. See [benchmark results, model survey and usage](../evaluation/transformer_benchmark/README.md)
+for the real baseline, supported model contract and remaining data/weight needs.

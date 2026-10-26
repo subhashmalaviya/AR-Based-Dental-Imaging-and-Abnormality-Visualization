@@ -61,7 +61,7 @@ test('paint/erase preserve other IDs and undo restores pixel-exact label map', (
   assert.equal(editor.labels[99], 2);
   paintLabelStroke(editor.labels, 10, 10, [4, 1], [4, 1], 1, 0);
   assert.equal(editor.labels[14], 0);
-  editor.labels = editor.history.pop();
+  editor.labels = editor.history.pop().labels;
   assert.equal(editor.labels[15], 0); assert.equal(editor.labels[99], 2);
 });
 

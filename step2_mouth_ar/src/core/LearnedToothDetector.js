@@ -51,7 +51,7 @@ export function backendPlan() {
 }
 
 const ortModules = new Map();
-function loadOrt(plan, wasmBase) {
+export function loadOrt(plan, wasmBase) {
   const key = plan === 'webgl' ? 'webgl' : 'wasm';
   if (!ortModules.has(key)) {
     // In Node (evaluation harness) the package's own Node build is used; in
@@ -78,7 +78,7 @@ function loadOrt(plan, wasmBase) {
 // of the browser bundle's static graph.
 const NODE_FS = 'node:fs/promises';
 
-async function readModel(url) {
+export async function readModel(url) {
   if (IS_NODE) {
     const fs = await import(/* @vite-ignore */ NODE_FS);
     return new Uint8Array(await fs.readFile(url));

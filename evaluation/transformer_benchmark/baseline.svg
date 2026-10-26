@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500" viewBox="0 0 900 500"><rect width="900" height="500" fill="#151b24"/>
+<text x="40" y="30" fill="white">GT normalized boundary error — max 0.0136</text>
+<circle cx="40" cy="60" r="2" fill="#38bdf8"/>
+<polyline points="40,60" stroke="#38bdf8" fill="none"/>
+<text x="40" y="235" fill="#38bdf8">current-unet (sample order)</text>
+<text x="40" y="270" fill="white">Unregistered temporal change (not accuracy) — max 0.196</text>
+<circle cx="122" cy="426.9128980891092" r="2" fill="#38bdf8"/>
+<circle cx="163" cy="408.9056050505058" r="2" fill="#38bdf8"/>
+<circle cx="204" cy="413.3131267848516" r="2" fill="#38bdf8"/>
+<circle cx="245" cy="432.1018327650801" r="2" fill="#38bdf8"/>
+<circle cx="286" cy="400.0384662945946" r="2" fill="#38bdf8"/>
+<circle cx="327" cy="435.97604633522576" r="2" fill="#38bdf8"/>
+<circle cx="368" cy="366.08579048479567" r="2" fill="#38bdf8"/>
+<circle cx="409" cy="366.1718465612" r="2" fill="#38bdf8"/>
+<circle cx="450" cy="393.07448808967644" r="2" fill="#38bdf8"/>
+<circle cx="491.00000000000006" cy="427.007681445387" r="2" fill="#38bdf8"/>
+<circle cx="532" cy="433.2983864874736" r="2" fill="#38bdf8"/>
+<circle cx="573" cy="367.1205535299347" r="2" fill="#38bdf8"/>
+<circle cx="614" cy="300" r="2" fill="#38bdf8"/>
+<circle cx="655" cy="342.31512517808153" r="2" fill="#38bdf8"/>
+<circle cx="696" cy="425.0888052300206" r="2" fill="#38bdf8"/>
+<circle cx="737" cy="404.3270427216958" r="2" fill="#38bdf8"/>
+<circle cx="778" cy="412.0707147947992" r="2" fill="#38bdf8"/>
+<circle cx="819" cy="437.35271114402906" r="2" fill="#38bdf8"/>
+<circle cx="860" cy="375.44628701199514" r="2" fill="#38bdf8"/>
+<polyline points="122,426.9128980891092 163,408.9056050505058 204,413.3131267848516 245,432.1018327650801 286,400.0384662945946 327,435.97604633522576 368,366.08579048479567 409,366.1718465612 450,393.07448808967644 491.00000000000006,427.007681445387 532,433.2983864874736 573,367.1205535299347 614,300 655,342.31512517808153 696,425.0888052300206 737,404.3270427216958 778,412.0707147947992 819,437.35271114402906 860,375.44628701199514" stroke="#38bdf8" fill="none"/>
+<text x="40" y="475" fill="#38bdf8">current-unet (sample order)</text>
+</svg>

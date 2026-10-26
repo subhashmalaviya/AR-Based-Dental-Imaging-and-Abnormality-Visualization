@@ -1,5 +1,4 @@
-import { LearnedToothDetector } from '../core/LearnedToothDetector.js';
-import { ToothSegmenter } from '../core/ToothSegmenter.js';
+import { evaluationDetector } from '../eval/inferCanvas.js';
 import { PHOTO_GT, expandCropMask, scorePhotoMasks } from '../eval/photoGroundTruth.js';
 import { alignReferenceMask, scoreReferenceOverlap } from '../eval/liveReference.js';
 import { UploadedPhotoComparison } from './UploadedPhotoComparison.js';
@@ -215,8 +214,7 @@ export class GroundTruthComparison {
     try {
       this.el('gtStatus').textContent = `Loading ${selection.key} detector and your reference…`;
       const { clean, truth } = await this.loadAssets();
-      detector = selection.key === 'learned'
-        ? new LearnedToothDetector({ modelUrl: this.modelUrl }) : new ToothSegmenter();
+      detector = evaluationDetector(selection, this.modelUrl);
       if (detector.init) await detector.init();
       detector.setParams?.(selection.params);
       const W = detector.inputWidth ?? 192, H = detector.inputHeight ?? 144;
@@ -269,7 +267,7 @@ export class GroundTruthComparison {
       for (const key of ['iou', 'dice', 'precision', 'recall']) {
         this.el(`gtMetric_${key}`).textContent = percent(scores[key]);
       }
-      this.el('gtPredictionTitle').textContent = `${selection.key === 'learned' ? 'Learned model' : 'Classical detector'} on clean reference photo`;
+      this.el('gtPredictionTitle').textContent = `${selection.key === 'classical' ? 'Classical detector' : detector.name} on clean reference photo`;
       this.el('gtPhotoResults').hidden = false;
       this.el('gtStatus').textContent = 'Finished. Scores compare filled masks at 880 × 450, within both photo cards. Unmarked pixels count as background. Camera tracking is excluded.';
     } catch (error) {

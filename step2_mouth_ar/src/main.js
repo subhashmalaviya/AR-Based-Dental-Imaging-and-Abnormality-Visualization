@@ -1,3 +1,5 @@
+import { VideoEvaluation } from './ui/VideoEvaluation.js';
+import { validateTransformerCard } from './core/TransformerToothDetector.js';
 /**
  * main.js — application wiring for Step 2.
  *
@@ -57,15 +59,24 @@ const teeth = new ToothPipeline({ detector: 'classical', smoothing: 'balanced' }
 const toothRenderer = new ToothOverlayRenderer(ctx);
 const debugRenderer = new DebugRenderer(ctx);
 const ar3d = new AR3DRenderer(ctx);
+let transformerConfig = null;
 const groundTruth = new GroundTruthComparison({
   root: document.getElementById('groundTruthComparison'),
   modelUrl: MODEL_URL,
   startCamera: start,
-  getDetector: () => ({ key: teeth.detectorKey, params: teeth.detector.isLearnedModel
+  getDetector: () => ({ key: teeth.detectorKey, options: transformerConfig, params: teeth.detector.isLearnedModel
     ? { ...teeth.detector.params }
     : Object.fromEntries(['whitenessPercentile', 'whitenessFloor', 'whitenessRelative',
       'splitRatio', 'archEdgeFrac', 'minAreaPx'].map(key => [key, teeth.detector[key]])) }),
 });
+
+new VideoEvaluation({ root: document.getElementById('videoEvaluation'), modelUrl: MODEL_URL,
+  getDetector: groundTruth.getDetector,
+  onAnnotate: (canvas,name,context,detection) => {
+    if (groundTruth.busy) throw new Error('Wait for the current photo comparison');
+    document.getElementById('gtUploadBtn').click(); groundTruth.uploads.loadAnnotationFrame(canvas,name,context,detection);
+    document.getElementById('uploadEditor').scrollIntoView({behavior:'smooth'});
+  } });
 
 // --- recording ------------------------------------------------------------
 const recorder = new SessionRecorder({
@@ -463,6 +474,7 @@ function describeDetector(det) {
     return 'Hand-designed whiteness threshold + interdental split. Kept as the '
       + 'measured baseline; not a trained model.';
   }
+  if (det.card) return `${det.name} — local SegFormer candidate, ${det.inputWidth}×${det.inputHeight}. Connected components per class; touching teeth of the same class may merge. No measured improvement established.`;
   const i = det.info;
   if (!i) return 'Learned model loaded (no model card found next to it).';
   const ds = (i.training?.datasets ?? []).map((d) => `${d.name} (${d.license})`).join(' + ');
@@ -477,7 +489,7 @@ async function selectDetector(key) {
   const sel = document.getElementById('detectorSelect');
   try {
     if (key === 'learned') hud.setBanner('Loading tooth model…', 'info');
-    const det = await teeth.setDetector(key, key === 'learned' ? { modelUrl: MODEL_URL } : {});
+    const det = await teeth.setDetector(key, key === 'learned' ? { modelUrl: MODEL_URL } : key === 'transformer' ? transformerConfig ?? {} : {});
     hud.setModelInfo(describeDetector(det));
     state.fallbackReason = null;
     hud.setDetectorWarning(key === 'classical'
@@ -499,6 +511,24 @@ async function selectDetector(key) {
     }
   }
 }
+document.getElementById('transformerLoad').addEventListener('click', async () => {
+  const status=document.getElementById('transformerStatus'),button=document.getElementById('transformerLoad');
+  let url;
+  try {
+    const model=document.getElementById('transformerModel').files[0],json=document.getElementById('transformerCard').files[0];
+    if(!model||!json)throw new Error('Select both ONNX and model card files');
+    if(model.size>500_000_000||json.size>1_000_000)throw new Error('Model/card files are too large');
+    button.disabled=true;document.getElementById('detectorSelect').disabled=true;status.textContent='Checking and loading Transformer candidate…';
+    const card=validateTransformerCard(JSON.parse(await json.text()));url=URL.createObjectURL(model);
+    const candidate={modelUrl:url,card};
+    const det=await teeth.setDetector('transformer',candidate);
+    // Keep previous object URLs alive for any evaluation already in flight.
+    transformerConfig=candidate;document.getElementById('transformerOption').disabled=false;
+    document.getElementById('detectorSelect').value='transformer';hud.setModelInfo(describeDetector(det));
+    status.textContent=`Loaded ${det.name}. Evaluate against reviewed GT before deciding whether it improves detection.`;
+  }catch(e){if(url)URL.revokeObjectURL(url);status.textContent=`Candidate not loaded: ${e.message}`;}
+  finally{button.disabled=false;document.getElementById('detectorSelect').disabled=false;}
+});
 bind('detectorSelect', (e) => selectDetector(e.target.value));
 document.getElementById('retryModelBtn')?.addEventListener('click', () => {
   const sel = document.getElementById('detectorSelect');

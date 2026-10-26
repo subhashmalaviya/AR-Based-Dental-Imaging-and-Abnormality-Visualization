@@ -33,6 +33,38 @@
       <video id="camera" playsinline autoplay muted></video>
       <canvas id="overlay"></canvas>
     </div>
+    <section id="videoEvaluation" class="panel__block gt-comparison">
+      <details><summary><strong>Upload Video — teeth detection &amp; frame extraction</strong></summary>
+      <p class="hint">Process an uploaded video with the selected teeth detector, then play or download the result. Frames are processed locally. The output shows the original video with cyan tooth borders and no other AR overlays; audio is omitted.</p>
+      <label class="row row--stack">Upload video <input id="videoUpload" type="file" accept="video/*" /></label>
+      <div id="videoSourcePanel" hidden>
+        <h3>Original video — choose any frame</h3>
+        <video id="evaluationVideo" controls muted playsinline preload="auto"></video>
+        <label class="row">Time (seconds) <input id="videoTime" type="number" min="0" step="0.001" value="0" /></label>
+        <div class="buttons buttons--wrap"><button id="videoPrevious" class="btn">Previous step</button><button id="videoNext" class="btn">Next step</button><button id="videoFrameUse" class="btn btn--primary">Use this frame for comparison</button><button id="videoFrameDownload" class="btn">Download clean frame (PNG)</button></div>
+        <p class="hint">Scrub or enter an exact time, then use the frame in the image editor below. Draw ground truth, restore saved labels, or upload a hand-marked copy of this frame. Previous/next moves by one output-frame interval.</p>
+        <label class="row"><input id="videoUseRegion" type="checkbox" /> Select a region before processing (optional)</label>
+        <p class="hint">Off: process the whole frame. On: drag a mouth region below before starting.</p>
+        <div id="videoRegionPanel" hidden>
+          <p class="hint">Pause at a clear frame and drag around the mouth. Keep the mouth inside this fixed region throughout the video. The exported video keeps the full original image; the model and frame extraction use this region.</p>
+          <canvas id="videoCrop" aria-label="Drag to select a fixed mouth crop"></canvas>
+          <p id="videoCropNote" class="hint"></p><button id="videoWhole" class="btn">Use whole frame</button>
+        </div>
+      </div>
+      <label class="row">Output frame rate <select id="videoFps"><option value="30">30 FPS</option><option value="24">24 FPS</option><option value="15">15 FPS</option><option value="10">10 FPS</option></select></label>
+      <p class="hint">The selected model runs on every output frame. Lower FPS processes faster. Playback follows the original timeline regardless of processing speed. Maximum input: 200 MB, 10 minutes, 4K.</p>
+      <div class="buttons buttons--wrap"><button id="videoRun" class="btn btn--primary">Process video — detect teeth</button><button id="videoStop" class="btn" disabled>Stop</button></div>
+      <p id="videoStatus" class="hint" role="status">Upload a video to begin.</p>
+      <div class="buttons buttons--wrap"><button id="videoDetectionFrame" class="btn btn--primary" disabled>Extract detection frame → GT comparison</button><button id="videoDetectionDownload" class="btn" disabled>Download detection frame (PNG)</button></div>
+      <p id="videoSnapshotStatus" class="hint" role="status">Open the displayed frame directly in Your ground truth comparison with its exact model prediction shown as vector borders. Draw your GT borders there to calculate error. Processing can continue; the extracted frame stays fixed.</p>
+      <p id="videoProcessedTime" class="hint"></p>
+      <canvas id="videoProcessingPreview" hidden aria-label="Current processed frame, teeth outlines only"></canvas>
+      <section id="videoOutputPanel" hidden>
+        <h3>Teeth-detection output video</h3><video id="videoOutput" controls playsinline></video>
+        <a id="videoDownload" class="btn" download>Download teeth-detection video (WebM)</a>
+      </section>
+      </details>
+    </section>
     <section id="groundTruthComparison" class="panel__block gt-comparison" aria-labelledby="gtHeading">
       <h2 id="gtHeading">Your ground truth comparison</h2>
       <p class="hint">Your hand-marked photo stays beside the model output while you test.</p>
@@ -74,10 +106,10 @@
         <section id="uploadEditor" hidden aria-label="Edit individual ground-truth teeth">
           <h3>Edit &amp; compare ground-truth teeth</h3>
           <p id="toothEditCount" class="hint"></p>
-          <p class="hint">Pick a tooth and paint missing pixels in its color. For a missing box, click <strong>New tooth</strong>, then paint or click around its boundary with <strong>Outline polygon</strong> and <strong>Fill polygon</strong>. Painting over another tooth transfers those pixels to the selected ID.</p>
+          <p class="hint">Select a tooth, then hold and drag around its edge with <strong>Freehand vector border</strong>. Release to close and save the smooth border. Draw again to replace that tooth’s border, or choose <strong>New tooth</strong> for another tooth. Paint and erase are available for pixel corrections.</p>
           <div class="tooth-editor-controls">
             <label class="row row--stack">Tooth <select id="toothEditSelect"></select></label>
-            <label class="row row--stack">Tool <select id="toothEditTool"><option value="paint">Paint selected tooth</option><option value="erase">Erase pixels</option><option value="pick">Pick tooth from mask</option><option value="polygon">Outline polygon</option></select></label>
+            <label class="row row--stack">Tool <select id="toothEditTool"><option value="curve" selected>Freehand vector border</option><option value="vector-edit">Move border points</option><option value="paint">Paint selected tooth</option><option value="erase">Erase pixels</option><option value="pick">Pick tooth from mask</option></select></label>
             <label class="row row--stack">Brush radius (pixels) <input id="toothEditBrush" type="number" min="1" max="60" step="1" value="5" /></label>
             <label class="row row--stack">Zoom <select id="toothEditZoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
             <label class="row row--stack">Shared background (editor + results) <select id="toothEditBackground"><option value="marked">Original hand-marked image</option><option value="clean">Clean image</option><option value="mask">Black mask background</option></select></label>
@@ -88,12 +120,13 @@
           <p class="hint">Grayscale and contrast enhance the shared photo background for editing. Annotation colors, original model input and comparison scores stay unchanged.</p>
           <div class="buttons buttons--wrap">
             <button id="toothEditNew" class="btn" type="button">New tooth</button><button id="toothEditDelete" class="btn" type="button">Delete selected tooth</button>
-            <button id="toothEditUndo" class="btn" type="button" disabled>Undo</button><button id="toothEditFill" class="btn" type="button">Fill polygon</button><button id="toothEditCancel" class="btn" type="button">Cancel polygon</button>
+            <button id="toothEditVectorize" class="btn" type="button">Smooth existing border</button>
+            <button id="toothEditUndo" class="btn" type="button" disabled>Undo</button><button id="toothEditRedo" class="btn" type="button" disabled>Redo</button><button id="toothEditFill" class="btn" type="button" hidden>Apply border</button><button id="toothEditCancel" class="btn" type="button">Cancel stroke</button>
           </div>
           <label class="row"><input id="toothEditPrediction" type="checkbox" checked /> Show model outline on editable ground truth</label>
           <p id="toothEditPredictionNote" class="hint">Run Detect &amp; compare to see the model outline directly over your editable ground truth.</p>
-          <div class="tooth-editor-viewport"><canvas id="toothEditCanvas" aria-label="Editable ground-truth teeth with model prediction outlines"></canvas></div>
-          <p class="hint">Comparison uses these exact edited pixels. The background is shared with every result below; switching it never moves labels or changes scores. Use Clean image to check alignment with the photo the model sees. Both uploads must show teeth at the same pixel positions.</p>
+          <p class="hint">Draw a continuous loop with a mouse, pen or touch—no point-by-point clicking. Release to apply; Escape or Cancel stroke discards an unfinished stroke. After drawing, choose Move border points and drag the white points to refine the selected tooth. Release to update the mask and error. Escape cancels a point move. Undo and Redo restore both borders and pixels. You can also redraw the complete outline. For a pixel-only mask, Smooth existing border creates movable points; check the fitted edge before keeping it. Vector strokes stay 1 screen pixel at any zoom. Painting converts curves back to pixel borders; Undo restores them.</p><div class="tooth-editor-viewport"><div id="toothEditStage"><canvas id="toothEditCanvas" aria-label="Editable ground-truth teeth with model prediction outlines"></canvas><svg id="toothEditVectors" aria-label="Vector tooth borders"></svg></div></div>
+          <p class="hint">Boundary error uses your vector curves directly; filled pixels are retained for tooth matching and mask export. The background is shared with every result below; switching it never moves labels or changes scores. Use Clean image to check alignment with the photo the model sees. Both uploads must show teeth at the same pixel positions.</p>
           <p class="hint">Edits update comparison scores immediately and survive Detect &amp; compare. Changing images, crop, extraction settings, or Extract / reset clears edits. Save labels before reloading. Editing labels changes the evaluation, not the model.</p>
           <button id="uploadLabelsJson" class="btn" type="button">Save editable tooth labels (JSON)</button>
           <label class="row row--stack">Restore saved labels for this image and crop <input id="uploadRestoreLabels" type="file" accept="application/json,.json" /></label>
@@ -111,7 +144,7 @@
           <dl class="gt-metrics gt-metrics--single">
             <div><dt>Normalized boundary error (0–1)</dt><dd id="uploadBoundaryError">—</dd></div>
           </dl>
-          <p class="hint">0 = exact boundary match. Lower is better. This number is the average distance between the two boundaries divided by the selected image region’s diagonal. Use the same region when comparing runs.</p>
+          <p class="hint">0 = exact boundary match. Lower is better. This number is the bidirectional Euclidean distance between vector borders, weighted by border length and divided by the selected image region’s diagonal. Use the same region when comparing runs.</p>
           <p id="uploadBoundaryStatus" class="hint" role="status"></p>
           <h3>Individual tooth comparison</h3>
           <p id="uploadToothSummary" class="hint"></p>
@@ -458,10 +491,17 @@
 
       <section class="panel__block">
         <h2 class="panel__heading">Tooth detection <span class="tag">Step 3</span></h2>
-        <label class="row row--stack">
+                  <details><summary>Load a Transformer candidate</summary>
+            <p class="hint">Use an RGB intraoral SegFormer ONNX export and its model card. Loading a candidate does not establish lower error. Compare reviewed GT before choosing it.</p>
+            <label class="row row--stack">ONNX model <input id="transformerModel" type="file" accept=".onnx" /></label>
+            <label class="row row--stack">Model card JSON <input id="transformerCard" type="file" accept=".json" /></label>
+            <button id="transformerLoad" class="btn" type="button">Load candidate</button>
+            <p id="transformerStatus" class="hint" role="status">No Transformer weights loaded. Model card schema: dental-segformer-onnx/1.</p>
+          </details>
+<label class="row row--stack">
           <span>Detector</span>
           <select id="detectorSelect">
-            <option value="learned" selected>Learned U-Net (trained on tooth data)</option>
+            <option value="learned" selected>Learned U-Net (trained on tooth data)</option><option value="transformer" id="transformerOption" disabled>SegFormer candidate — load local model</option>
             <option value="classical">Classical CV (v1 baseline, not a neural network)</option>
           </select>
         </label>

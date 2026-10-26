@@ -27,6 +27,7 @@ import { createDetector } from './ToothDetector.js';
 import { ToothPoseEstimator, intrinsicsForFrame } from './ToothPoseEstimator.js';
 import { Tooth3DAnchorSet } from './Tooth3DAnchor.js';
 import './ToothSegmenter.js';        // registers 'classical'
+import './TransformerToothDetector.js';
 import './LearnedToothDetector.js';  // registers 'learned'
 
 /** p97 mouth brightness below which the panel warns about low light. */
@@ -35,6 +36,7 @@ export const LOW_LIGHT = 150;
 /** Tracker thresholds depend on what the detector's confidence means. */
 const TRACKER_PROFILE = {
   classical: { highConf: 0.30, lowConf: 0.10 },   // heuristic quality score
+  transformer: { highConf: 0.45, lowConf: 0.20 },
   learned: { highConf: 0.45, lowConf: 0.20 },     // model probability blend
 };
 

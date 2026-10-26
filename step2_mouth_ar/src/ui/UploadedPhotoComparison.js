@@ -1,10 +1,9 @@
-import { LearnedToothDetector } from '../core/LearnedToothDetector.js';
-import { ToothSegmenter } from '../core/ToothSegmenter.js';
+import { evaluationDetector } from '../eval/inferCanvas.js';
 import { extractUploadTruth, rgbHue } from '../eval/uploadGroundTruth.js';
 import { scoreReferenceOverlap } from '../eval/liveReference.js';
 import { binaryFromLabels, resizeInstanceLabels, compareInstances, encodeLabels, decodeLabels, instanceStats } from '../eval/toothInstances.js';
 import { ToothMaskEditor, drawInstances } from './ToothMaskEditor.js';
-import { boundaryDistance, matchedBoundaryDistances } from '../eval/boundaryDistance.js';
+import { traceLabelContours, vectorBoundaryDistance, validateVectorContours } from '../eval/vectorBoundary.js';
 
 const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 const formatError = n => n == null ? '—' : n === 0 ? '0' : n.toPrecision(4);
@@ -33,7 +32,7 @@ export class UploadedPhotoComparison {
     this.el('uploadLabelsJson').addEventListener('click', () => {
       if (!this.truthLabels) return;
       this.download(new Blob([JSON.stringify({ schema: 'tooth-labels/1', cleanImage: this.cleanName,
-        crop: this.crop, width: this.crop[2], height: this.crop[3], labels: encodeLabels(this.truthLabels) })],
+        crop: this.crop, width: this.crop[2], height: this.crop[3], labels: encodeLabels(this.truthLabels), vectorContours: this.editor.vectors, frame: this.frameContext ?? undefined })],
       { type: 'application/json' }), 'editable-tooth-labels.json');
     });
     this.el('uploadRestoreLabels').addEventListener('change', async e => {
@@ -45,13 +44,16 @@ export class UploadedPhotoComparison {
           || doc.width !== this.input.width || doc.height !== this.input.height) throw new Error('Saved labels must match this clean image and selected crop');
         const labels = decodeLabels(doc.labels, this.input.width * this.input.height);
         if (instanceStats(labels, this.input.width).length > 256) throw new Error('Too many tooth labels');
+        const vectors = validateVectorContours(doc.vectorContours ?? [], this.input.width, this.input.height, labels);
         this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
-        this.editor.setData(labels, this.input, this.markedCrop); this.updateComparison();
+        this.editor.setData(labels, this.input, this.markedCrop);
+        if (vectors.length) this.editor.restoreVectors(vectors);
+        this.updateComparison();
         this.el('uploadStatus').textContent = 'Saved tooth labels restored.';
       } catch (error) { this.el('uploadStatus').textContent = `Could not restore labels: ${error.message}`; }
       e.target.value = '';
     });
-    for (const id of ['uploadClean', 'uploadMarked']) this.el(id).addEventListener('change', () => this.loadPair());
+    for (const id of ['uploadClean', 'uploadMarked']) this.el(id).addEventListener('change', () => this.loadPair(id));
     for (const id of ['uploadFormat', 'uploadColor', 'uploadHue', 'uploadDifference', 'uploadGap']) {
       this.el(id).addEventListener('input', () => this.invalidate());
     }
@@ -87,6 +89,28 @@ export class UploadedPhotoComparison {
     c.addEventListener('pointerup', finish); c.addEventListener('pointercancel', finish);
   }
 
+  loadAnnotationFrame(clean, name, frameContext, detection=null) {
+    if (this.busy) throw new Error('Wait for photo inference to finish');
+    if(detection && detection.labels?.length!==clean.width*clean.height)throw new Error('Video prediction must match the extracted frame dimensions');
+    this.frameSource={clean,name,frameContext};
+    this.el('uploadClean').value='';this.el('uploadMarked').value='';
+    this.revision++; this.clean=clean; this.marked=clean; this.cleanName=name; this.markedName='Manual video-frame annotation';
+    this.crop=[0,0,clean.width,clean.height]; this.invalidate(); this.frameContext=frameContext;
+    this.input=clean;this.markedCrop=clean;this.truthLabels=new Int32Array(clean.width*clean.height);
+    this.el('toothEditBackground').value='clean';this.el('toothEditTool').value='curve';
+    this.editor.setData(this.truthLabels,clean,clean);
+    if(detection){
+      this.predictionLabels=detection.labels.slice();this.runInfo=structuredClone(detection.runInfo);
+      this.el('toothEditPrediction').checked=true;
+    }
+    this.el('uploadInputPreview').hidden=false;this.drawSelection();
+    const preview=this.el('uploadMarkedPreview');preview.width=clean.width;preview.height=clean.height;preview.getContext('2d').drawImage(clean,0,0);
+    this.el('uploadEditor').hidden=false;this.el('uploadRun').disabled=false;this.el('uploadPreview').disabled=true;
+    this.updateComparison();this.el('uploadStatus').textContent=detection
+      ? 'Video detection frame loaded. Orange vector borders are the exact saved model prediction. Draw and adjust your GT borders; error updates against this prediction without rerunning the model. Detect & compare explicitly runs a new prediction.'
+      : 'Clean video frame loaded. Draw each tooth with the freehand border, restore saved labels, or upload a matching hand-marked image above. Then Detect & compare to calculate the same boundary error as for photos.';
+  }
+
   invalidate() {
     this.result = null; this.truth = null; this.prediction = null;
     this.truthLabels = null; this.predictionLabels = null; this.input = null; this.runInfo = null; this.manualEdits = 0;
@@ -97,22 +121,24 @@ export class UploadedPhotoComparison {
       ? 'Ready. Select the mouth area, then preview the ground truth or Detect & compare.' : 'Choose both matching images.';
   }
 
-  async loadPair() {
+  async loadPair(changedId) {
+    const frameSource=changedId==='uploadMarked'?this.frameSource:null;this.frameSource=frameSource;
     const rev = ++this.revision;
-    this.clean = null; this.marked = null; this.invalidate();
+    this.frameContext = null; this.clean = null; this.marked = null; this.invalidate();
     this.el('uploadInputPreview').hidden = true;
     this.el('uploadPreview').disabled = true; this.el('uploadRun').disabled = true;
     const cleanFile = this.el('uploadClean').files[0], markedFile = this.el('uploadMarked').files[0];
-    if (!cleanFile || !markedFile) return;
+    if ((!cleanFile && !frameSource) || !markedFile) return;
     try {
       this.el('uploadStatus').textContent = 'Loading images…';
-      const [clean, marked] = await Promise.all([readFile(cleanFile), readFile(markedFile)]);
+      const [clean, marked] = await Promise.all([frameSource ? frameSource.clean : readFile(cleanFile), readFile(markedFile)]);
       if (rev !== this.revision) return;
       if (clean.width !== marked.width || clean.height !== marked.height) {
         throw new Error(`Image dimensions differ: clean ${clean.width}×${clean.height}, ground truth ${marked.width}×${marked.height}. Use aligned copies of the same size.`);
       }
-      Object.assign(this, { clean, marked, cleanName: cleanFile.name, markedName: markedFile.name,
+      Object.assign(this, { clean, marked, cleanName: frameSource?.name ?? cleanFile.name, markedName: markedFile.name,
         crop: [0, 0, clean.width, clean.height] });
+      this.frameContext=frameSource?.frameContext ?? null;
       this.drawSelection();
       const preview = this.el('uploadMarkedPreview');
       preview.width = marked.width; preview.height = marked.height; preview.getContext('2d').drawImage(marked, 0, 0);
@@ -164,7 +190,7 @@ export class UploadedPhotoComparison {
       }
       const selection = this.getDetector();
       this.el('uploadStatus').textContent = `Running ${selection.key} detector on the clean image…`;
-      detector = selection.key === 'learned' ? new LearnedToothDetector({ modelUrl: this.modelUrl }) : new ToothSegmenter();
+      detector = evaluationDetector(selection, this.modelUrl);
       await detector.init?.(); detector.setParams?.(selection.params);
       const W = detector.inputWidth ?? 192, H = detector.inputHeight ?? 144;
       const smallCanvas = canvas(W, H), ctx = smallCanvas.getContext('2d', { willReadFrequently: true });
@@ -209,15 +235,17 @@ export class UploadedPhotoComparison {
     this.prediction = binaryFromLabels(this.predictionLabels);
     const scores = scoreReferenceOverlap(this.truth, this.prediction);
     const perTooth = compareInstances(this.truthLabels, this.predictionLabels, this.input.width);
-    const boundary = boundaryDistance(this.truthLabels, this.predictionLabels, this.input.width, this.input.height);
-    matchedBoundaryDistances(this.truthLabels, this.predictionLabels, this.input.width, this.input.height, perTooth.rows);
+    const gtContours = this.editor.getContours(), predContours = traceLabelContours(this.predictionLabels, this.input.width, this.input.height);
+    const boundary = vectorBoundaryDistance(gtContours, predContours, this.input.width, this.input.height);
+    for (const row of perTooth.rows) row.boundary = row.prediction == null ? null : vectorBoundaryDistance(
+      gtContours.filter(c => c.id === row.groundTruth), predContours.filter(c => c.id === row.prediction), this.input.width, this.input.height);
     for (const row of perTooth.rows) row.normalizedBoundaryError = row.boundary?.normalizedAssd ?? null;
     this.el('uploadBoundaryError').textContent = formatError(boundary.normalizedAssd);
     this.el('uploadBoundaryStatus').textContent = boundary.status === 'ok' ? ''
       : `Distance unavailable: ${boundary.status}. Missing boundaries are not a perfect match.`;
     this.result = { cleanImage: this.cleanName, groundTruthImage: this.markedName,
       originalSize: [this.clean.width, this.clean.height], evaluatedRegion: this.crop.slice(), scores, perTooth, boundary,
-      boundaryDefinition: '4-neighbor boundary pixel centers including tooth separators. Euclidean ASSD pools both directional distance sums over total boundary pixels; Chamfer averages the two directional means. Normalized ASSD divides by crop diagonal. Per-tooth distances use existing IoU matches.',
+      boundaryDefinition: boundary.definition,
       normalizedBoundaryError: boundary.normalizedAssd,
       ...this.runInfo, extraction: this.extractionOptions, manualEditOperations: this.manualEdits,
       scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall scores use binary unions.' };

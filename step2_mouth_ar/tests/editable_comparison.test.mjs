@@ -135,3 +135,27 @@ test('editor, results and scores share exact edited labels across background cha
   assert.equal(get('#uploadBoundaryError').textContent, '—');
   assert.equal(get('#uploadToothRows').children[0].children[2].textContent, '—');
 });
+
+test('video prediction is shown immediately and GT edits score against the frozen prediction',t=>{
+  const previous=globalThis.document;t.after(()=>{globalThis.document=previous;});
+  globalThis.document={createElement:tag=>tag==='canvas'?canvas():element()};
+  const elements=new Map(),get=selector=>{
+    if(!elements.has(selector)){const el=selector.endsWith('Canvas')||selector==='#uploadMarkedPreview'?canvas():element();el.querySelector=get;elements.set(selector,el);}
+    return elements.get(selector);
+  };
+  const app=new UploadedPhotoComparison({root:{querySelector:get},setBusy(){},getDetector(){throw new Error('Must use video prediction');}});
+  app.drawSelection=()=>{};
+  const clean=canvas(5,3,20),labels=new Int32Array(15);labels[6]=1;labels[7]=1;
+  app.loadAnnotationFrame(clean,'video_frame.png',{timeMs:2500,sourceCrop:[10,20,5,3]},
+    {labels,runInfo:{detector:'learned',source:'video prediction snapshot',videoTimeMs:2500}});
+  assert.deepEqual(app.predictionLabels,labels);assert.notStrictEqual(app.predictionLabels,labels);
+  assert.equal(get('#toothEditPrediction').checked,true);assert.equal(app.editor.prediction,app.predictionLabels);
+  assert.ok(app.truthLabels.every(v=>v===0),'predictions must not become ground truth');
+  assert.equal(app.result.normalizedBoundaryError,null);
+  assert.equal(app.result.source,'video prediction snapshot');
+  app.editor.labels[6]=1;app.editor.changed();assert.ok(app.result.normalizedBoundaryError>0);
+  const saved=app.predictionLabels.slice();labels.fill(0);
+  assert.deepEqual(app.predictionLabels,saved,'later video inference cannot change the comparison');
+  app.editor.labels[7]=1;app.editor.changed();assert.equal(app.result.normalizedBoundaryError,0);
+  assert.equal(app.input,clean);assert.equal(rgba(app.input)[0],20,'model overlays are not burned into the clean image');
+});
