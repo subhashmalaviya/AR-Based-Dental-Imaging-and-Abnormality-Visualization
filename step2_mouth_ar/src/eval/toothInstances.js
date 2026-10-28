@@ -1,6 +1,11 @@
 import { hungarian } from '../core/math/hungarian.js';
 
-export const binaryFromLabels = labels => Uint8Array.from(labels, n => n > 0 ? 1 : 0);
+export function binaryFromLabels(labels) {
+  // Avoid iterator intermediates when scoring full-resolution phone photos.
+  const binary = new Uint8Array(labels.length);
+  for (let i = 0; i < labels.length; i++) binary[i] = labels[i] > 0 ? 1 : 0;
+  return binary;
+}
 
 export function instanceStats(labels, width) {
   const stats = new Map();

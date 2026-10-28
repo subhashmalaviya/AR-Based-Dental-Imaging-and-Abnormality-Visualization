@@ -33,6 +33,7 @@
       <video id="camera" playsinline autoplay muted></video>
       <canvas id="overlay"></canvas>
     </div>
+    <section id="phoneCapture" class="panel__block gt-comparison" aria-label="Phone and camera input"></section>
     <section id="videoEvaluation" class="panel__block gt-comparison">
       <details><summary><strong>Upload Video — teeth detection &amp; frame extraction</strong></summary>
       <p class="hint">Process an uploaded video with the selected teeth detector, then play or download the result. Frames are processed locally. The output shows the original video with cyan tooth borders and no other AR overlays; audio is omitted.</p>
@@ -74,9 +75,9 @@
         <button id="gtUploadBtn" class="btn" type="button" aria-pressed="false">Upload image pair</button>
       </div>
       <section id="gtUploadPanel" hidden aria-label="Compare uploaded clean and ground-truth images">
-        <p class="hint">Select a clean photo and the same photo with your manual outlines. Both must have identical dimensions and alignment. Files stay on this device.</p>
-        <label class="row row--stack">Clean image <input id="uploadClean" type="file" accept="image/png,image/jpeg,image/webp" /></label>
-        <label class="row row--stack">Hand-marked ground truth <input id="uploadMarked" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+        <p class="hint">Open a clean photo to draw ground truth, or also open its hand-marked copy. Paired images must have identical dimensions and alignment. JPEG, PNG, WebP and JPEG-encoded .DNG exports are supported; other formats depend on browser support. Originals up to 32 MP / 80 MB stay at native resolution. Compare or edit the whole image directly; selecting a mouth crop is optional. Files stay on this device unless you send them through phone pairing.</p>
+        <label class="row row--stack">Clean image <input id="uploadClean" type="file" accept="image/*,.dng,.DNG,.heic,.heif,.avif,.tif,.tiff" /></label>
+        <label class="row row--stack">Hand-marked ground truth <input id="uploadMarked" type="file" accept="image/*,.dng,.DNG,.heic,.heif,.avif,.tif,.tiff" /></label>
         <label class="row row--stack">Ground-truth format
           <select id="uploadFormat"><option value="outlines">Colored closed outlines on the photo</option><option value="binary">Binary mask: white teeth, black background</option></select>
         </label>
@@ -99,6 +100,7 @@
           <p class="hint">For a full face or a collage, select one mouth at a time. Detection and scoring use only the selected rectangle. Keep complete outlines inside it.</p>
         </div>
         <div class="buttons buttons--wrap">
+          <button id="uploadManual" class="btn" type="button" disabled>Draw ground truth on selected region</button>
           <button id="uploadPreview" class="btn" type="button" disabled>Extract / reset ground truth</button>
           <button id="uploadRun" class="btn btn--primary" type="button" disabled>Detect &amp; compare</button>
         </div>

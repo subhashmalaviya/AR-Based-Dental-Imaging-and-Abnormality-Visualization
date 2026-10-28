@@ -1198,7 +1198,7 @@ hand-marked `photo_area.jpg` reference:
   green/red/blue pixel errors, IoU, Dice, precision, and recall. The test works
   without starting the camera. Download scores as JSON or download the GT mask.
 - **Upload image pair** accepts a clean PNG/JPEG/WebP and a matching, aligned
-  annotated copy of the same dimensions (up to 4 megapixels / 25 MB per file).
+  annotated copy of the same dimensions (originals up to 32 megapixels / 80 MB per file; whole-image editing and comparison use native resolution, with optional cropping).
   Draw a crop around one mouth on the clean-image preview, or use the whole
   image for a close-up. Choose colored closed outlines or a white-on-black mask.
   **Extract / reset ground truth** fills enclosed outlines and shows the extracted mask;
@@ -1325,3 +1325,60 @@ Local RGB dental SegFormer ONNX candidates can be loaded with a model card and
 used by the live, image and video pipelines. No Transformer has been established
 as better or selected by default. See [benchmark results, model survey and usage](../evaluation/transformer_benchmark/README.md)
 for the real baseline, supported model contract and remaining data/weight needs.
+
+
+## Full-resolution phone photos and direct camera input
+
+In **Your ground truth comparison → Upload image pair**, choose a clean image.
+You may also choose its matching hand-marked image, or draw GT directly using
+**Draw ground truth on selected region**. Imports preserve the original pixels;
+the overview is reduced for display only. Edit and compare the entire original
+image directly, or optionally select a mouth crop. Both use native pixel coordinates. There is no automatic
+registration or resizing of one image to fit another.
+
+JPEG, PNG and WebP work directly. The supplied `testvideophoto/IMG_2752.DNG`
+through `IMG_2757.DNG` contain JPEG data, so the loader identifies their content
+and opens them even though their suffix is `.DNG`. The 3024 × 4032 PNGs and JPEGs
+also load. This does **not** implement RAW development: actual TIFF-based DNG
+files must be exported as PNG/JPEG. HEIC/HEIF support depends on the browser;
+use an iPhone’s **Most Compatible** setting or export JPEG when unsupported.
+Original import limits are 32 MP, 16384 pixels per side, and 80 MB.
+
+Open **Phone / USB camera → photo and video input**:
+
+- On the same device, use **Take / choose photo** or **Record / choose video**.
+  Alternatively open the preview, select the front/rear/USB camera, and capture.
+  Still capture uses the browser’s photo API where available, otherwise a clean
+  video frame. Native camera capture is preferable for maximum photo resolution.
+- To send from a phone to the computer, run `npm run dev` (HTTP) or
+  `npm run dev:https` from `step2_mouth_ar`, then create a pairing link in the
+  computer UI. On the same Wi-Fi/hotspot, open one of the displayed LAN links
+  on the phone. Keep both pages open. Photos load into GT comparison; recordings
+  load into Upload Video. Existing inputs are preserved until **Use received
+  capture** is pressed. Inference must finish before its input is replaced.
+- Browser camera preview requires HTTPS trusted by the phone, or localhost.
+  The development certificate may require setup/trust on the phone. Native
+  capture/file buttons remain available when browser preview is unavailable.
+- For Android over USB, enable USB debugging, authorize the computer, run
+  `adb reverse tcp:5173 tcp:5173`, and use the **localhost** pairing link from
+  the HTTP dev server on the phone. Chrome DevTools port forwarding is another
+  option. Disconnect forwarding later with `adb reverse --remove tcp:5173`.
+- A cable alone does not make an iPhone a browser webcam. Use Wi-Fi/hotspot,
+  or an OS-supported webcam connection/driver and choose that device in the
+  camera selector. This feature transfers captured media; it does not stream
+  the remote phone’s live preview into the desktop’s AR tracker.
+
+The sender page is `/phone.html`. Pairing works with the local Vite dev and
+preview servers; static hosting alone has no cross-device relay. Capture on the
+same device still works on an HTTPS static deployment. This change does not
+publish or expose a public server automatically.
+
+Pairing uses separate random sender/receiver keys, one pending capture per
+session, a 200 MB transfer limit, bounded server memory, and no filesystem
+storage. Only the computer can read pending media. Keep the sender link private;
+anyone with it can send captures to that pairing. Pending media is cleared on
+acknowledgement/dismissal, disconnect, server restart, or 30 minutes of inactivity.
+Transfers use the selected server’s HTTP/HTTPS connection. In-app recording is
+silent and stops at 2 minutes; imported videos retain the existing 200 MB,
+10-minute, 4K limits. Unsupported video codecs need conversion to H.264 MP4 or
+WebM before inference.

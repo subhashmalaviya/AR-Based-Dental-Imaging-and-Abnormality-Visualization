@@ -1,3 +1,4 @@
+import { checkEditCrop } from './imageInput.js';
 import { validateCrop } from '../eval/frameEvaluation.js';
 import { evaluationDetector, inferCanvas } from '../eval/inferCanvas.js';
 import { videoSchedule, drawTeethFrame, createVideoWriter } from '../eval/videoOutput.js';
@@ -80,7 +81,7 @@ export class VideoEvaluation {
     this.snapshotBusy=true;this.syncSnapshotButton();
     try {
       if(!download) {
-        if(metadata.clean.width*metadata.clean.height>4_000_000)throw new Error('Select a mouth region below 4 megapixels before processing to use frames in the GT editor');
+        checkEditCrop([0, 0, metadata.clean.width, metadata.clean.height]);
         const clean=document.createElement('canvas');clean.width=metadata.clean.width;clean.height=metadata.clean.height;
         clean.getContext('2d').drawImage(metadata.clean,0,0);
         const context={captureProtocol:'browser-seek/1',videoSha256:metadata.hash,timeMs:metadata.timeMs,sourceCrop:metadata.crop.slice()};
@@ -118,14 +119,21 @@ export class VideoEvaluation {
     if(this.outputUrl)URL.revokeObjectURL(this.outputUrl);this.outputUrl=null;
     this.el('videoDownload').removeAttribute('href');
   }
-  async load() {
-    const file=this.el('videoUpload').files[0];if(!file||this.busy)return;
+  async load(file = this.el('videoUpload').files[0]) {
+    if (!file) return;
+    if (this.busy) throw new Error('Wait for the current video operation to finish');
     this.video.pause();this.lock(true);this.hash=null;this.clearOutput();this.resetProcessedFrame();this.el('videoSourcePanel').hidden=true;
     try {
       if(file.size>200_000_000)throw new Error('Use a video smaller than 200 MB');
       if(this.url)URL.revokeObjectURL(this.url);this.url=URL.createObjectURL(file);
       this.status('Opening video…');
+      this.el('videoUpload').value = '';
       await waitEvent(this.video,'loadeddata',()=>{this.video.src=this.url;this.video.load();});
+      // Some MediaRecorder WebM files omit duration metadata until the end is sought.
+      if (!Number.isFinite(this.video.duration)) {
+        await waitEvent(this.video, 'durationchange', () => { this.video.currentTime = 1e10; });
+        await this.seek(0);
+      }
       videoSchedule(this.video.duration,30);
       if(this.video.videoWidth*this.video.videoHeight>8_300_000)throw new Error('Use video up to 4K');
       this.hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
@@ -133,7 +141,8 @@ export class VideoEvaluation {
       this.filename=file.name;this.crop=[0,0,this.video.videoWidth,this.video.videoHeight];
       this.el('videoTime').max=this.video.duration;this.drawCrop();this.el('videoSourcePanel').hidden=false;
       this.status('Ready. Process the video, or pause at any time and use that clean frame for comparison.');
-    }catch(e){this.hash=null;this.status(e.message);}finally{this.lock(false);}
+    }catch(e){this.hash=null;this.status(e.message);return false;}finally{this.lock(false);}
+    return true;
   }
   drawCrop() {
     if(!this.crop)return;
@@ -204,7 +213,7 @@ export class VideoEvaluation {
         const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
         this.status('Clean frame downloaded. Mark this exact image to upload it as matching ground truth.');
       }else{
-        if(frame.width*frame.height>4_000_000)throw new Error('Select a mouth crop below 4 megapixels for the image editor');
+        checkEditCrop([0, 0, frame.width, frame.height]);
         this.onAnnotate(frame,name,{captureProtocol:'browser-seek/1',videoSha256:this.hash,timeMs,sourceCrop:crop.slice()});
         this.status(`Opened the clean frame at ${(timeMs/1000).toFixed(3)} s in image comparison. Draw GT or upload a matching hand-marked image, then Detect & compare.`);
       }

@@ -1,3 +1,4 @@
+import { readImageFile, drawImagePreview, checkEditCrop } from './imageInput.js';
 import { evaluationDetector } from '../eval/inferCanvas.js';
 import { extractUploadTruth, rgbHue } from '../eval/uploadGroundTruth.js';
 import { scoreReferenceOverlap } from '../eval/liveReference.js';
@@ -7,17 +8,6 @@ import { traceLabelContours, vectorBoundaryDistance, validateVectorContours } fr
 
 const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 const formatError = n => n == null ? '—' : n === 0 ? '0' : n.toPrecision(4);
-const readFile = async file => {
-  if (file.size > 25 * 1024 * 1024) throw new Error('Use an image file smaller than 25 MB.');
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image(); image.src = url; await image.decode();
-    if (image.naturalWidth * image.naturalHeight > 4_000_000) throw new Error('Use images up to 4 megapixels; resize both identically before selecting them.');
-    const c = canvas(image.naturalWidth, image.naturalHeight);
-    c.getContext('2d').drawImage(image, 0, 0);
-    return c;
-  } finally { URL.revokeObjectURL(url); }
-};
 
 export class UploadedPhotoComparison {
   constructor({ root, modelUrl, getDetector, setBusy }) {
@@ -57,6 +47,7 @@ export class UploadedPhotoComparison {
     for (const id of ['uploadFormat', 'uploadColor', 'uploadHue', 'uploadDifference', 'uploadGap']) {
       this.el(id).addEventListener('input', () => this.invalidate());
     }
+    this.el('uploadManual').addEventListener('click', () => this.startManual());
     this.el('uploadPreview').addEventListener('click', () => this.run(false));
     this.el('uploadRun').addEventListener('click', () => this.run(true));
     this.el('uploadFull').addEventListener('click', () => {
@@ -72,8 +63,8 @@ export class UploadedPhotoComparison {
     const c = this.el('uploadSelection');
     const point = e => {
       const r = c.getBoundingClientRect();
-      return [Math.max(0, Math.min(c.width, (e.clientX - r.left) * c.width / r.width)),
-        Math.max(0, Math.min(c.height, (e.clientY - r.top) * c.height / r.height))];
+      return [Math.max(0, Math.min(this.clean.width, (e.clientX - r.left) * this.clean.width / r.width)),
+        Math.max(0, Math.min(this.clean.height, (e.clientY - r.top) * this.clean.height / r.height))];
     };
     c.addEventListener('pointerdown', e => {
       if (!this.clean || this.busy) return;
@@ -91,6 +82,7 @@ export class UploadedPhotoComparison {
 
   loadAnnotationFrame(clean, name, frameContext, detection=null) {
     if (this.busy) throw new Error('Wait for photo inference to finish');
+    checkEditCrop([0, 0, clean.width, clean.height]);
     if(detection && detection.labels?.length!==clean.width*clean.height)throw new Error('Video prediction must match the extracted frame dimensions');
     this.frameSource={clean,name,frameContext};
     this.el('uploadClean').value='';this.el('uploadMarked').value='';
@@ -117,53 +109,105 @@ export class UploadedPhotoComparison {
     this.el('uploadEditor').hidden = true;
     this.el('uploadResults').hidden = true;
     this.el('uploadMasks').hidden = true;
-    this.el('uploadStatus').textContent = this.clean && this.marked
-      ? 'Ready. Select the mouth area, then preview the ground truth or Detect & compare.' : 'Choose both matching images.';
+    this.extractionOptions = null;
+    this.el('uploadExtractionNote').textContent = '';
+    this.el('uploadManual').disabled = !this.clean;
+    this.el('uploadPreview').disabled = !this.marked;
+    this.el('uploadRun').disabled = !this.marked;
+    this.el('uploadStatus').textContent = this.clean
+      ? this.marked ? 'Ready. Preview the ground truth or Detect & compare the whole image. Selecting a mouth region is optional.'
+        : 'Draw ground truth on the whole image or optionally select a mouth region. You can also upload a matching marked image.'
+      : 'Choose a clean photo, with an optional matching marked image.';
+  }
+
+  async loadCleanFile(file) {
+    if (this.busy) throw new Error('Wait for photo inference to finish');
+    // A captured photo follows the same crop-first path as a normal upload.
+    this.el('uploadClean').value = ''; this.el('uploadMarked').value = '';
+    const revision = ++this.revision;
+    const clean = await readImageFile(file);
+    if (revision !== this.revision) return;
+    this.frameSource = { clean, name: file.name, frameContext: { source: 'camera capture' } };
+    this.clean = clean; this.marked = null; this.cleanName = file.name;
+    this.frameContext = this.frameSource.frameContext;
+    this.crop = [0, 0, clean.width, clean.height]; this.invalidate(); this.showInputs();
+  }
+
+  showInputs() {
+    this.drawSelection();
+    drawImagePreview(this.el('uploadMarkedPreview'), this.marked ?? this.clean);
+    this.el('uploadInputPreview').hidden = false;
+    this.el('uploadManual').disabled = false;
+    this.el('uploadPreview').disabled = !this.marked; this.el('uploadRun').disabled = !this.marked;
+    this.el('uploadStatus').textContent = `${this.clean.width} × ${this.clean.height} original pixels loaded. Compare the whole image or optionally select the mouth, then ${this.marked ? 'extract outlines or Detect & compare' : 'Draw ground truth on selected region, or upload a matching marked image'}. Editing and comparison keep native resolution; cropping is optional.`;
+  }
+
+  startManual() {
+    if (this.busy || !this.clean) return;
+    try {
+      checkEditCrop(this.crop);
+      this.invalidate();
+      const [x, y, w, h] = this.crop;
+      this.input = this.cropImage(this.clean, [x, y, w, h]);
+      this.markedCrop = this.input; this.truthLabels = new Int32Array(w * h);
+      this.extractionOptions = { format: 'manual-vector' };
+      this.el('toothEditBackground').value = 'clean'; this.el('toothEditTool').value = 'curve';
+      this.editor.setData(this.truthLabels, this.input, this.input);
+      this.el('uploadEditor').hidden = false; this.el('uploadRun').disabled = false;
+      this.updateComparison();
+      this.el('uploadStatus').textContent = 'Draw each tooth border on this native-resolution crop, then Detect & compare. Model predictions are never used as ground truth.';
+    } catch (e) { this.el('uploadStatus').textContent = e.message; }
   }
 
   async loadPair(changedId) {
+    if (this.busy) return;
     const frameSource=changedId==='uploadMarked'?this.frameSource:null;this.frameSource=frameSource;
     const rev = ++this.revision;
     this.frameContext = null; this.clean = null; this.marked = null; this.invalidate();
     this.el('uploadInputPreview').hidden = true;
     this.el('uploadPreview').disabled = true; this.el('uploadRun').disabled = true;
     const cleanFile = this.el('uploadClean').files[0], markedFile = this.el('uploadMarked').files[0];
-    if ((!cleanFile && !frameSource) || !markedFile) return;
+    this.el('uploadManual').disabled = true;
+    if (!cleanFile && !frameSource) return;
     try {
       this.el('uploadStatus').textContent = 'Loading images…';
-      const [clean, marked] = await Promise.all([frameSource ? frameSource.clean : readFile(cleanFile), readFile(markedFile)]);
+      const [clean, marked] = await Promise.all([frameSource ? frameSource.clean : readImageFile(cleanFile), markedFile ? readImageFile(markedFile) : null]);
       if (rev !== this.revision) return;
-      if (clean.width !== marked.width || clean.height !== marked.height) {
+      if (marked && (clean.width !== marked.width || clean.height !== marked.height)) {
         throw new Error(`Image dimensions differ: clean ${clean.width}×${clean.height}, ground truth ${marked.width}×${marked.height}. Use aligned copies of the same size.`);
       }
-      Object.assign(this, { clean, marked, cleanName: frameSource?.name ?? cleanFile.name, markedName: markedFile.name,
+      Object.assign(this, { clean, marked, cleanName: frameSource?.name ?? cleanFile.name, markedName: markedFile?.name ?? null,
         crop: [0, 0, clean.width, clean.height] });
       this.frameContext=frameSource?.frameContext ?? null;
-      this.drawSelection();
-      const preview = this.el('uploadMarkedPreview');
-      preview.width = marked.width; preview.height = marked.height; preview.getContext('2d').drawImage(marked, 0, 0);
-      this.el('uploadInputPreview').hidden = false;
-      this.el('uploadPreview').disabled = false; this.el('uploadRun').disabled = false;
-      this.invalidate();
+      this.invalidate(); this.showInputs();
     } catch (error) { if (rev === this.revision) this.el('uploadStatus').textContent = error.message; }
   }
 
   drawSelection() {
-    const c = this.el('uploadSelection'); c.width = this.clean.width; c.height = this.clean.height;
-    const ctx = c.getContext('2d'); ctx.drawImage(this.clean, 0, 0);
-    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = Math.max(2, c.width / 250);
-    ctx.strokeRect(...this.crop);
+    const c = this.el('uploadSelection'); drawImagePreview(c, this.clean);
+    const ctx = c.getContext('2d');
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+    const [x, y, w, h] = this.crop;
+    ctx.strokeRect(x * c.width / this.clean.width, y * c.height / this.clean.height, w * c.width / this.clean.width, h * c.height / this.clean.height);
     this.el('uploadCropLabel').textContent = `Selected region: x=${this.crop[0]}, y=${this.crop[1]}, ${this.crop[2]} × ${this.crop[3]} pixels. Drag on the clean image to change it.`;
   }
 
+  cropImage(source, [x, y, w, h]) {
+    if (x === 0 && y === 0 && w === source.width && h === source.height) return source;
+    const crop = canvas(w, h);
+    crop.getContext('2d').drawImage(source, x, y, w, h, 0, 0, w, h);
+    return crop;
+  }
+
   async run(infer) {
-    if (this.busy || !this.clean || !this.marked) return;
+    if (this.busy || !this.clean || (!this.marked && !this.truthLabels)) return;
     this.busy = true; this.setBusy(true); this.editor.disabled = true;
     this.root.querySelectorAll('input, select, button').forEach(el => { el.disabled = true; });
     let detector;
     try {
       this.el('uploadStatus').textContent = this.truthLabels && infer ? 'Using your current edited ground truth…' : 'Extracting separate ground-truth teeth…';
       await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      checkEditCrop(this.crop);
       const rect = this.crop.slice(), [x, y, w, h] = rect;
       // Re-running inference must never discard manually corrected labels.
       if (!this.truthLabels || !infer) {
@@ -176,8 +220,8 @@ export class UploadedPhotoComparison {
         const extraction = extractUploadTruth(cleanPixels.data, markedPixels.data, w, h, this.extractionOptions);
         if (extraction.regions > 256) throw new Error('More than 256 regions found. Refine the crop or outline color to exclude noise.');
         this.truthLabels = extraction.labels; this.manualEdits = 0;
-        this.input = canvas(w, h); this.input.getContext('2d').putImageData(cleanPixels, 0, 0);
-        this.markedCrop = canvas(w, h); this.markedCrop.getContext('2d').putImageData(markedPixels, 0, 0);
+        this.input = this.cropImage(this.clean, rect);
+        this.markedCrop = this.cropImage(this.marked, rect);
         this.editor.setData(this.truthLabels, this.input, this.markedCrop);
         this.el('uploadExtractionNote').textContent = `${extraction.regions} separate regions extracted; ${extraction.repaired ?? 0} recovered by additional gap repair. Check every box. Add missing teeth or split merged regions with the editor. Binary masks separate only disconnected regions.`;
       }
@@ -218,6 +262,8 @@ export class UploadedPhotoComparison {
     finally {
       detector?.dispose?.(); this.busy = false; this.setBusy(false); this.editor.disabled = false;
       this.root.querySelectorAll('input, select, button').forEach(el => { el.disabled = false; });
+      this.el('uploadPreview').disabled = !this.marked;
+      this.el('uploadRun').disabled = !this.marked && !this.truthLabels;
       if (this.truthLabels) this.editor.refresh();
     }
   }

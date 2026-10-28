@@ -1,3 +1,4 @@
+import { PhoneCapture } from './ui/PhoneCapture.js';
 import { VideoEvaluation } from './ui/VideoEvaluation.js';
 import { validateTransformerCard } from './core/TransformerToothDetector.js';
 /**
@@ -70,13 +71,32 @@ const groundTruth = new GroundTruthComparison({
       'splitRatio', 'archEdgeFrac', 'minAreaPx'].map(key => [key, teeth.detector[key]])) }),
 });
 
-new VideoEvaluation({ root: document.getElementById('videoEvaluation'), modelUrl: MODEL_URL,
+const videoEvaluation = new VideoEvaluation({ root: document.getElementById('videoEvaluation'), modelUrl: MODEL_URL,
   getDetector: groundTruth.getDetector,
   onAnnotate: (canvas,name,context,detection) => {
     if (groundTruth.busy) throw new Error('Wait for the current photo comparison');
     document.getElementById('gtUploadBtn').click(); groundTruth.uploads.loadAnnotationFrame(canvas,name,context,detection);
     document.getElementById('uploadEditor').scrollIntoView({behavior:'smooth'});
   } });
+
+new PhoneCapture({ root: document.getElementById('phoneCapture'),
+  canReceive: kind => kind === 'photo'
+    ? !groundTruth.busy && !groundTruth.uploads.clean
+    : !videoEvaluation.busy && !videoEvaluation.hash,
+  onCapture: async (file, kind) => {
+    if (kind === 'photo') {
+      if (groundTruth.busy) throw new Error('Wait for the current photo comparison, then use the received capture.');
+      await groundTruth.uploads.loadCleanFile(file);
+      document.getElementById('gtUploadBtn').click();
+      document.getElementById('uploadInputPreview').scrollIntoView({ behavior: 'smooth' });
+    } else {
+      if (videoEvaluation.busy) throw new Error('Wait for video processing to finish, then use the received capture.');
+      if (!await videoEvaluation.load(file)) throw new Error('Could not open the video. Check the video status; use MP4/H.264 or WebM supported by this browser.');
+      document.querySelector('#videoEvaluation details').open = true;
+      document.getElementById('videoEvaluation').scrollIntoView({ behavior: 'smooth' });
+    }
+  },
+});
 
 // --- recording ------------------------------------------------------------
 const recorder = new SessionRecorder({
