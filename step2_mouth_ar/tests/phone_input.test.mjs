@@ -34,6 +34,11 @@ test('phone relay authenticates roles, preserves bytes until acknowledged and re
   const session = await (await request('session', null, { method: 'POST' })).json();
   const { id, receiver, sender } = session;
   assert.notEqual(receiver, sender);
+  assert.deepEqual(await (await request(`${id}/status`, receiver)).json(), { connected: false });
+  assert.equal((await request(`${id}/hello`, receiver, { method: 'POST' })).status, 403);
+  assert.equal((await request(`${id}/status`, sender)).status, 403);
+  assert.equal((await request(`${id}/hello`, sender, { method: 'POST' })).status, 200);
+  assert.deepEqual(await (await request(`${id}/status`, receiver)).json(), { connected: true });
   const upload = { method: 'POST', headers: { 'Content-Type': 'image/png', 'X-Media-Kind': 'photo', 'X-File-Name': encodeURIComponent('phone photo.png') }, body: Buffer.from([0, 1, 2, 255]) };
   assert.equal((await request(`${id}/upload`, receiver, upload)).status, 403);
   assert.equal((await request(`${id}/upload`, sender, { ...upload, body: Buffer.alloc(101) })).status, 413);

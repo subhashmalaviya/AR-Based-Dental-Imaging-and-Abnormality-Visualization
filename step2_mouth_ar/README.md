@@ -1359,10 +1359,17 @@ Open **Phone / USB camera → photo and video input**:
 - Browser camera preview requires HTTPS trusted by the phone, or localhost.
   The development certificate may require setup/trust on the phone. Native
   capture/file buttons remain available when browser preview is unavailable.
-- For Android over USB, enable USB debugging, authorize the computer, run
-  `adb reverse tcp:5173 tcp:5173`, and use the **localhost** pairing link from
-  the HTTP dev server on the phone. Chrome DevTools port forwarding is another
-  option. Disconnect forwarding later with `adb reverse --remove tcp:5173`.
+- For Android over USB, enable USB debugging and authorize the computer.
+  With `npm run dev` running, start `npm run phone:android` in a second terminal
+  (requires Android platform-tools / `adb`). It restores port forwarding after
+  cable reconnects. With multiple devices use
+  `npm run phone:android -- --serial DEVICE_ID`; for a different server port add
+  `--port 5174`. Select **Android USB** in the pairing panel and scan its QR code
+  with the phone, opening the link in Chrome. Keep both pages open. The panel
+  confirms when the phone page connects, separately from capture receipt.
+  QR codes are generated locally. If the server restarts, create a new pairing.
+  Ctrl+C stops the helper; remove forwarding afterwards with
+  `adb -s DEVICE_ID reverse --remove tcp:5173`.
 - A cable alone does not make an iPhone a browser webcam. Use Wi-Fi/hotspot,
   or an OS-supported webcam connection/driver and choose that device in the
   camera selector. This feature transfers captured media; it does not stream

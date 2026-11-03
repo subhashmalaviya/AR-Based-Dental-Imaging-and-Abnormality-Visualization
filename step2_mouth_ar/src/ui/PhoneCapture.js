@@ -1,4 +1,5 @@
 import { IMAGE_ACCEPT } from './imageInput.js';
+import QRCode from 'qrcode';
 
 export async function phoneRequest(path, key, options = {}) {
   const response = await fetch(`/__phone/${path}`, { ...options, headers: {
@@ -33,6 +34,7 @@ export class CaptureControls {
     this.el('photo').onclick = () => this.photo(); this.el('record').onclick = () => this.record();
     this.el('stop').onclick = () => this.stopRecording();
     window.addEventListener('pagehide', () => { this.disposed = true; this.close(); });
+    window.addEventListener('pageshow', () => { this.disposed = false; });
   }
   status(message) { this.el('status').textContent = message; }
   sync() {
@@ -76,6 +78,7 @@ export class CaptureControls {
     this.stopRecording();
     this.stream?.getTracks().forEach(t => t.stop()); this.stream = null;
     this.video.srcObject = null; this.video.hidden = true; this.sync();
+    this.status('Camera closed. Open camera to preview or use the native capture buttons.');
   }
   async photo() {
     if (this.busy || !this.stream || this.recorder) return;
@@ -132,6 +135,10 @@ export class PhoneCapture {
       <div data-local-capture></div><h3>Connect a phone to this computer</h3>
       <p class="hint">On the same Wi-Fi or phone hotspot, create a link and open it on your phone. Captures transfer through this computer’s local server. Keep the pairing link private. Pairings expire after 30 minutes of inactivity.</p>
       <div class="buttons buttons--wrap"><button class="btn" data-p="pair">Create phone pairing link</button><button class="btn" data-p="disconnect" disabled>Disconnect phone</button></div>
+      <section data-p="qrPanel" hidden><label class="row row--stack">Phone connection<select data-p="address"></select></label>
+      <canvas data-p="qr" aria-label="Scan pairing QR code with your phone" style="max-width:100%;height:auto"></canvas>
+      <p class="hint">Scan this code on your phone and open it in Chrome. Android USB uses localhost after port forwarding; Wi-Fi uses the computer’s LAN address. The QR code is generated on this device.</p></section>
+      <p data-p="connection" class="hint" role="status"></p>
       <div data-p="links"></div><p class="hint" data-p="status" role="status"></p>
       <div class="buttons buttons--wrap"><button class="btn" data-p="use" hidden>Use received capture</button><button class="btn" data-p="dismiss" hidden>Dismiss received capture</button></div>
       <details><summary>USB cable and hosting setup</summary><p class="hint">Android USB: enable USB debugging, connect the cable, run <code>adb reverse tcp:5173 tcp:5173</code>, and open the localhost pairing link on the phone (use <code>npm run dev</code>). For Wi-Fi, use a displayed LAN address; <code>npm run dev:https</code> enables the camera preview where the phone trusts the certificate. Native capture/file buttons are available if preview is blocked. An iPhone can use Wi-Fi or a hotspot. Plugging in a cable alone does not expose its camera to a browser. If your phone/driver exposes a USB webcam, select it under Camera. A static hosted site supports capture on that device; cross-device pairing requires this local server.</p></details>
@@ -146,6 +153,7 @@ export class PhoneCapture {
     this.el('disconnect').onclick = () => this.disconnect();
     this.el('use').onclick = () => this.usePending();
     this.el('dismiss').onclick = () => this.dismiss();
+    this.el('address').onchange = () => this.drawPairingQR().catch(e => this.status(e.message));
     window.addEventListener('pagehide', () => { clearTimeout(this.timer); });
   }
   status(message) { this.el('status').textContent = message; }
@@ -155,28 +163,46 @@ export class PhoneCapture {
       await this.disconnect();
       this.session = await (await phoneRequest('session', null, { method: 'POST' })).json();
       const { id, sender, origins } = this.session;
+      this.el('address').replaceChildren();
       for (const origin of origins) {
         const url = new URL('/phone.html', origin); url.hash = new URLSearchParams({ id, key: sender }).toString();
+        const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+        this.el('address').add(new Option(loopback ? `Android USB — ${origin}` : `Network — ${origin}`, url.href));
         const row = document.createElement('p'), link = document.createElement('a'), copy = document.createElement('button');
         link.href = url.href; link.textContent = `${origin}/phone.html — open on phone`; link.target = '_blank'; link.rel = 'noopener';
         copy.className = 'btn'; copy.textContent = 'Copy pairing link';
         copy.onclick = async () => { try { await navigator.clipboard.writeText(url.href); this.status('Pairing link copied. Open it on your phone.'); } catch { this.status('Copy the link address using your browser’s link menu.'); } };
         row.append(link, ' ', copy); this.el('links').append(row);
       }
+      await this.drawPairingQR(); this.el('qrPanel').hidden = false;
+      this.el('connection').textContent = 'Phone not connected yet. Scan the pairing code.';
       this.el('disconnect').disabled = false; this.status('Waiting for phone captures. Use a LAN address for Wi-Fi or localhost with Android USB forwarding.');
       this.poll();
     } catch (e) { this.status(e.message); }
     finally { this.el('pair').disabled = false; }
   }
+  async drawPairingQR() {
+    if (this.el('address').value) await QRCode.toCanvas(this.el('qr'), this.el('address').value,
+      { width: 300, margin: 4, errorCorrectionLevel: 'M' });
+  }
   async disconnect() {
     clearTimeout(this.timer); const s = this.session; this.session = null;
     this.pending = null; this.showPending(); this.el('links').replaceChildren(); this.el('disconnect').disabled = true;
+    this.el('qrPanel').hidden = true; this.el('connection').textContent = ''; this.lastConnectionCheck = 0;
     if (s) { try { await phoneRequest(`${s.id}/close`, s.receiver, { method: 'DELETE' }); } catch { /* Expiry also clears data. */ } }
     this.status('Phone disconnected.');
   }
   async poll() {
     const s = this.session; if (!s) return;
     try {
+      if (!this.lastConnectionCheck || Date.now() - this.lastConnectionCheck >= 5000) {
+        const connection = await (await phoneRequest(`${s.id}/status`, s.receiver)).json();
+        if (this.session !== s) return;
+        this.lastConnectionCheck = Date.now();
+        this.el('connection').textContent = connection.connected
+          ? 'Phone connected. Capture a photo or video on the phone to send it here.'
+          : 'Phone not connected, or its capture page is in the background. Open the pairing page on the phone.';
+      }
       if (!this.pending) {
         const meta = await (await phoneRequest(`${s.id}/pending`, s.receiver)).json();
         if (this.session !== s) return;

@@ -27,7 +27,7 @@ export function phoneBridgeMiddleware({ maxBytes = 200_000_000, totalBytes = 256
       if (pathname === `${PREFIX}session` && req.method === 'POST') {
         if (sessions.size >= 4) return json(429, { error: 'Close an existing pairing or wait for it to expire.' });
         const id = token(), receiver = token(), sender = token();
-        sessions.set(id, { receiver, sender, touched: Date.now(), media: null, uploading: false });
+        sessions.set(id, { receiver, sender, touched: Date.now(), phoneSeen: null, media: null, uploading: false });
         const protocol = req.socket.encrypted ? 'https:' : 'http:';
         const port = new URL(`${protocol}//${req.headers.host}`).port;
         const hosts = [...new Set([req.headers.host, ...Object.values(networkInterfaces()).flat()
@@ -38,10 +38,18 @@ export function phoneBridgeMiddleware({ maxBytes = 200_000_000, totalBytes = 256
       const [, , id, action] = pathname.split('/'), s = sessions.get(id);
       if (!s) return json(404, { error: 'Pairing expired or server restarted. Create a new phone link on the computer.' });
       const auth = req.headers.authorization?.replace(/^Bearer /, '');
-      const sending = action === 'upload';
+      const sending = action === 'upload' || action === 'hello';
       if (auth !== (sending ? s.sender : s.receiver)) return json(403, { error: 'Invalid pairing key.' });
       s.touched = Date.now();
-      if (sending && req.method === 'POST') {
+      if (action === 'hello' && req.method === 'POST') {
+        s.phoneSeen = Date.now();
+        return json(200, { connected: true });
+      }
+      if (action === 'status' && req.method === 'GET') {
+        return json(200, { connected: s.phoneSeen != null && Date.now() - s.phoneSeen < 30_000 });
+      }
+      if (action === 'upload' && req.method === 'POST') {
+        s.phoneSeen = Date.now();
         if (s.media || s.uploading) return json(409, { error: 'The previous capture is waiting on the computer. Load or dismiss it first.' });
         const size = Number(req.headers['content-length']);
         if (!Number.isSafeInteger(size) || size <= 0 || size > maxBytes) return json(413, { error: 'Capture must be nonempty and below 200 MB.' });

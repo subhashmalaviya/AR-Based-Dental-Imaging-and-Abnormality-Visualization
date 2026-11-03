@@ -8,6 +8,7 @@
     "postinstall": "node scripts/vendor-wasm.mjs && node scripts/vendor-ort.mjs && node scripts/fetch-model.mjs",
     "setup": "npm run vendor:wasm && npm run vendor:ort && npm run fetch:model",
     "dev": "vite --host",
+    "phone:android": "node scripts/android-usb.mjs",
     "dev:https": "vite --host --mode https",
     "build": "vite build",
     "preview": "vite preview --host",
@@ -21,7 +22,8 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.14",
-    "onnxruntime-web": "^1.29.0"
+    "onnxruntime-web": "^1.29.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^1.1.0",
