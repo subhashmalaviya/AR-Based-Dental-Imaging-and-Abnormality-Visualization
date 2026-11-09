@@ -84,6 +84,8 @@ step2_mouth_ar/tools/train/_data/
 testoutputs/
 # Local uploaded training/annotation media
 /testvideophoto/
+# Local patient evaluation reports (contain patient identifiers and results).
+/outputs/patient-batch-*/
 step2_mouth_ar/scratch/
 ChatGPT Image*.png
 Screencast*.webm

@@ -1327,7 +1327,61 @@ as better or selected by default. See [benchmark results, model survey and usage
 for the real baseline, supported model contract and remaining data/weight needs.
 
 
+## Batch patient evaluation and Excel download
+
+Open **Batch patient evaluation → Excel report**. Enter the absolute main folder
+path (for example `/home/subhash/iitd-sem-7/cod492/testvideophoto`), then **Scan
+folder path**, **Run batch comparison**, and **Download Excel report**. The path
+route is available from localhost on the local dev/preview server, for folders
+inside this project. **Choose main folder** also supports folders elsewhere and
+static hosting; the browser reads only the files you select. Subfolders are
+scanned recursively. No patient data is sent to an external service.
+
+Pair each image with a same-stem JSON file in the same directory, such as
+`Patient_1/IOP_Center_1.png` and `Patient_1/IOP_Center_1.json`. Patient JSON must
+contain `teeth`, each with `contours` (all rings) or `contour` (one ring) using
+native `[x, y]` coordinates. `contour` is an alias, not an additional ring, when
+`contours` is present. Saved editor `tooth-labels/1` JSON is also supported and
+must match its clean image name and explicit crop. Invalid/out-of-bounds
+contours, missing pairs, duplicate candidates and decoding failures appear in
+the report instead of stopping the remaining images.
+
+The selected detector and settings are captured at run start. The model is
+initialized once and each image is evaluated sequentially through the existing
+photo inference pipeline. Patient JSON is evaluated over the full image;
+editor JSON uses its saved crop. Ground truth never determines a model crop.
+Original dimensions are retained for scoring; inference still uses the model's
+fixed input size. Files without dimension metadata must already align with
+the paired image. **Stop after current image** preserves completed results and
+marks remaining pairs as cancelled. Download before reloading the page.
+
+The `.xlsx` has **Summary** and **Images** sheets. The image error is the
+existing arc-length weighted bidirectional Euclidean boundary ASSD divided by
+the evaluated region diagonal. The overall error is the arithmetic mean of
+scored image errors, weighting each image equally. A missing predicted or GT
+boundary has no defined distance: it stays blank with an explicit status and
+is excluded from the mean. Always inspect scored/total coverage alongside the
+mean; it is not a tooth-count accuracy percentage. Numeric errors, source
+paths, GT/model counts, dimensions, crops, inference timings, detector and
+settings are included. The aggregate Excel formula includes a cached result
+and recalculates in Excel. Folder limits: 5000 relevant files, 20 levels,
+80 MB per image, 40 MB per JSON, existing 32 MP decoding limit.
+
 ## Full-resolution phone photos and direct camera input
+
+In **Your ground truth comparison → Upload image pair**, open a **Clean image**,
+then choose its **Ground-truth JSON**. Patient contour JSON creates separate
+editable tooth masks automatically at native coordinates, over the full image.
+Saved `tooth-labels/1` JSON restores its exact labels and saved crop. The editor
+opens immediately: use **Move border points**, freehand redraw, paint/erase,
+Undo and Redo, then **Detect & compare**. Inference preserves the imported and
+edited GT. A prediction already shown is retained only for the same image
+region. **Save editable tooth labels (JSON)** saves your corrected version.
+All contours of multipart teeth remain under one label. Multipart or overlapping
+regions that cannot retain one consistent editable curve stay as pixel masks,
+with their count explained beside the editor. Later teeth own overlapping
+pixels; fully covered/zero-pixel teeth are rejected rather than silently lost.
+Invalid JSON reports an error without replacing the current annotation.
 
 In **Your ground truth comparison → Upload image pair**, choose a clean image.
 You may also choose its matching hand-marked image, or draw GT directly using

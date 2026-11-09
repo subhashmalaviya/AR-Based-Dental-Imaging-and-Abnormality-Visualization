@@ -1,4 +1,5 @@
 import { phoneBridge } from './scripts/phone-bridge.mjs';
+import { patientFolder } from './scripts/patient-folder.mjs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
@@ -16,7 +17,7 @@ const isolationHeaders = process.env.COI === '0' ? {} : {
 
 export default defineConfig(({ mode }) => ({
   base: './',                       // relative paths: required by Capacitor
-  plugins: [phoneBridge(), ...(mode === 'https' ? [basicSsl()] : [])],
+  plugins: [phoneBridge(), patientFolder(), ...(mode === 'https' ? [basicSsl()] : [])],
   server: { host: true, port: 5173, headers: isolationHeaders },
   preview: { host: true, port: 4173, headers: isolationHeaders },
   build: {

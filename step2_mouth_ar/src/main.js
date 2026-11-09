@@ -1,4 +1,5 @@
 import { PhoneCapture } from './ui/PhoneCapture.js';
+import { BatchEvaluation } from './ui/BatchEvaluation.js';
 import { VideoEvaluation } from './ui/VideoEvaluation.js';
 import { validateTransformerCard } from './core/TransformerToothDetector.js';
 /**
@@ -78,6 +79,8 @@ const videoEvaluation = new VideoEvaluation({ root: document.getElementById('vid
     document.getElementById('gtUploadBtn').click(); groundTruth.uploads.loadAnnotationFrame(canvas,name,context,detection);
     document.getElementById('uploadEditor').scrollIntoView({behavior:'smooth'});
   } });
+
+new BatchEvaluation({ root: document.getElementById('batchEvaluation'), modelUrl: MODEL_URL, getDetector: groundTruth.getDetector });
 
 new PhoneCapture({ root: document.getElementById('phoneCapture'),
   canReceive: kind => kind === 'photo'

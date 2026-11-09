@@ -5,6 +5,7 @@ import { scoreReferenceOverlap } from '../eval/liveReference.js';
 import { binaryFromLabels, resizeInstanceLabels, compareInstances, encodeLabels, decodeLabels, instanceStats } from '../eval/toothInstances.js';
 import { ToothMaskEditor, drawInstances } from './ToothMaskEditor.js';
 import { traceLabelContours, vectorBoundaryDistance, validateVectorContours } from '../eval/vectorBoundary.js';
+import { importGroundTruth } from '../eval/importGroundTruth.js';
 
 const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 const formatError = n => n == null ? '—' : n === 0 ? '0' : n.toPrecision(4);
@@ -41,6 +42,11 @@ export class UploadedPhotoComparison {
         this.updateComparison();
         this.el('uploadStatus').textContent = 'Saved tooth labels restored.';
       } catch (error) { this.el('uploadStatus').textContent = `Could not restore labels: ${error.message}`; }
+      e.target.value = '';
+    });
+    this.el('uploadTruthJson').addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (file) await this.loadTruthJson(file);
       e.target.value = '';
     });
     for (const id of ['uploadClean', 'uploadMarked']) this.el(id).addEventListener('change', () => this.loadPair(id));
@@ -112,12 +118,56 @@ export class UploadedPhotoComparison {
     this.extractionOptions = null;
     this.el('uploadExtractionNote').textContent = '';
     this.el('uploadManual').disabled = !this.clean;
+    this.el('uploadTruthJson').disabled = !this.clean;
+    this.el('uploadTruthJson').value = '';
     this.el('uploadPreview').disabled = !this.marked;
     this.el('uploadRun').disabled = !this.marked;
     this.el('uploadStatus').textContent = this.clean
       ? this.marked ? 'Ready. Preview the ground truth or Detect & compare the whole image. Selecting a mouth region is optional.'
         : 'Draw ground truth on the whole image or optionally select a mouth region. You can also upload a matching marked image.'
       : 'Choose a clean photo, with an optional matching marked image.';
+  }
+
+  async loadTruthJson(file) {
+    if (this.busy || !this.clean) return;
+    const revision = this.revision, clean = this.clean;
+    this.busy = true; this.setBusy(true); this.editor.disabled = true;
+    const controls = [...this.root.querySelectorAll('input, select, button')].map(el => [el, el.disabled]);
+    for (const [el] of controls) el.disabled = true;
+    let loaded = false;
+    try {
+      this.el('uploadStatus').textContent = 'Loading ground-truth JSON and creating editable tooth masks…';
+      if (file.size > 40_000_000) throw new Error('Label file is too large (maximum 40 MB)');
+      const doc = JSON.parse(await file.text());
+      if (revision !== this.revision || clean !== this.clean) return;
+      const imported = importGroundTruth(doc, clean.width, clean.height, this.cleanName);
+      const sameRegion = JSON.stringify(this.crop) === JSON.stringify(imported.crop);
+      // Keep a captured/model prediction only when its coordinate system agrees.
+      if (!sameRegion) { this.predictionLabels = null; this.runInfo = null; }
+      this.crop = imported.crop.slice(); this.input = this.cropImage(clean, this.crop);
+      this.marked = null; this.markedName = file.name; this.markedCrop = this.input;
+      this.el('uploadMarked').value = '';
+      this.truthLabels = imported.labels; this.manualEdits = 0;
+      this.extractionOptions = { format: 'json', source: file.name };
+      this.el('toothEditBackground').value = 'clean';
+      this.el('toothEditTool').value = imported.vectors.length ? 'vector-edit' : 'paint';
+      this.editor.setData(this.truthLabels, this.input, this.input);
+      if (imported.vectors.length) this.editor.restoreVectors(imported.vectors);
+      this.drawSelection(); drawImagePreview(this.el('uploadMarkedPreview'), clean);
+      this.el('uploadInputPreview').hidden = false; this.el('uploadEditor').hidden = false;
+      this.updateComparison();
+      const count = instanceStats(this.truthLabels, this.input.width).length;
+      this.el('uploadExtractionNote').textContent = `${count} teeth imported from ${file.name}. Each tooth has a separate editable label.`
+        + (imported.pixelOnlyTeeth ? ` ${imported.pixelOnlyTeeth} multipart or overlapping teeth are kept as editable pixel masks; use paint/erase to refine them.` : ' Use Move border points to adjust the imported contours.');
+      this.el('uploadStatus').textContent = 'JSON ground truth loaded. Edit the mask below, then Detect & compare. Your edits are preserved when inference runs.';
+      loaded = true;
+    } catch (error) { this.el('uploadStatus').textContent = `Could not load ground-truth JSON: ${error.message}`; }
+    finally {
+      this.busy = false; this.setBusy(false); this.editor.disabled = false;
+      for (const [el, disabled] of controls) el.disabled = disabled;
+      if (loaded) { this.el('uploadRun').disabled = false; this.el('uploadPreview').disabled = true; }
+      if (this.truthLabels) this.editor.refresh();
+    }
   }
 
   async loadCleanFile(file) {
