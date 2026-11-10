@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { boundaryOptions } from '../src/eval/boundaryOptions.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -12,6 +13,7 @@ import { summarizeBenchmark, chooseValidationCandidate, resizeRgb } from '../src
 const [mediaFile,modelsFile,outFile]=process.argv.slice(2);
 if(!outFile)throw new Error('Usage: benchmark_models.mjs media/manifest.json models.json report.json');
 const media=JSON.parse(fs.readFileSync(mediaFile)),config=JSON.parse(fs.readFileSync(modelsFile));
+const distanceOptions=boundaryOptions(config.boundaryOptions);
 if(media.schema!=='evaluation-media/1')throw new Error('Prepare native crops with prepare_evaluation_media.py');
 if (!Array.isArray(config.models)||!config.models.length||new Set(config.models.map(m=>m.id)).size!==config.models.length) throw new Error('Model IDs must be unique');
 const groups=new Map(),sources=new Map(),sampleIds=new Set();
@@ -53,10 +55,10 @@ for(const m of config.models) {
           gt=[...traceLabelContours(labels,s.width,s.height).filter(c=>!ids.has(c.id)),...vectors];
         }
         if(!gt.length)throw new Error('Ground truth has no labelled teeth');
-        boundary=vectorBoundaryDistance(gt,pred,s.width,s.height);instances=compareInstances(labels,prediction,s.width);
+        boundary=vectorBoundaryDistance(gt,pred,s.width,s.height,distanceOptions);instances=compareInstances(labels,prediction,s.width);
       }
       const temporal=s.timeMs!=null&&s.group===previousGroup&&previousTime!=null&&s.timeMs>previousTime
-        ?vectorBoundaryDistance(previous,pred,s.width,s.height):null;
+        ?vectorBoundaryDistance(previous,pred,s.width,s.height,distanceOptions):null;
       result.rows.push({id:s.id,group:s.group,split:s.split,timeMs:s.timeMs??null,sourceCrop:s.sourceCrop,videoSha256:s.videoSha256,captureProtocol:s.captureProtocol,decodedFrameIndex:s.decodedFrameIndex,decodedTimeMs:s.decodedTimeMs,
         hasGroundTruth:!!s.labels,labelsSha256,rgbSha256:hash(rgbFile),normalizedBoundaryError:boundary?.normalizedAssd??null,
         temporalBoundaryChange:temporal?.normalizedAssd??null,status:boundary?.status??'unlabelled',
@@ -75,7 +77,7 @@ for(const m of config.models) {
   finally{detector?.dispose();}
   console.log(JSON.stringify({id:result.id,error:result.error,summary:result.summary}));
 }
-const report={schema:'dental-model-benchmark/1',createdAt:new Date().toISOString(),models,
+const report={schema:'dental-model-benchmark/1',createdAt:new Date().toISOString(),boundaryOptions:distanceOptions,models,
   selection:chooseValidationCandidate(models,config.baselineId),
   scope:'Native crop vector ASSD divided by crop diagonal. Bilinear RGB resize before each model. Missing predictions penalized as 1 in summary. Coverage counts use one-to-one IoU >= 0.5 matches. Temporal change is unregistered, includes motion and is not accuracy. No model deployed automatically.'};
 fs.writeFileSync(outFile,JSON.stringify(report,null,2));

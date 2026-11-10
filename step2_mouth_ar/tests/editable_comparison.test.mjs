@@ -126,7 +126,7 @@ test('editor, results and scores share exact edited labels across background cha
   assert.equal(app.result.perTooth.rows[0].iou, 0.5);
   assert.equal(app.result.normalizedBoundaryError, app.result.boundary.normalizedAssd);
   assert.ok(Number(get('#uploadBoundaryError').textContent) > 0);
-  assert.equal(get('#uploadToothRows').children[0].children.length, 4);
+  assert.equal(get('#uploadToothRows').children[0].children.length, 7);
   const row = app.result.perTooth.rows[0];
   assert.equal(row.normalizedBoundaryError, row.boundary.normalizedAssd);
   assert.equal(Number(get('#uploadToothRows').children[0].children[2].textContent), Number(row.normalizedBoundaryError.toPrecision(4)));

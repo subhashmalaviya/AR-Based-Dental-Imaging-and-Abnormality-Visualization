@@ -1,3 +1,6 @@
+import { getBoundaryOptions, onBoundaryOptions } from './boundaryMetricSettings.js';
+import { formatDistance, formatCoverage, formatPass, summarizeBoundaryMetrics } from '../eval/boundaryOptions.js';
+import { traceLabelContours, vectorBoundaryDistance } from '../eval/vectorBoundary.js';
 import { evaluationDetector } from '../eval/inferCanvas.js';
 import { PHOTO_GT, expandCropMask, scorePhotoMasks } from '../eval/photoGroundTruth.js';
 import { alignReferenceMask, scoreReferenceOverlap } from '../eval/liveReference.js';
@@ -62,6 +65,11 @@ export class GroundTruthComparison {
       for (const id of ['gtOffsetX', 'gtOffsetY', 'gtRotation']) this.el(id).value = '0';
       this.el('gtFlip').checked = false;
       this.renderLive();
+    });
+    onBoundaryOptions(() => {
+      if (this.busy) return;
+      if (this.mode === 'live') this.renderLive();
+      else if (this.mode === 'photo' && this.photoPrediction && this.result) this.result.boundary = this.renderBoundary(this.assets.truth, this.photoPrediction, PHOTO_GT.width, PHOTO_GT.height);
     });
     this.showLive();
   }
@@ -167,9 +175,16 @@ export class GroundTruthComparison {
       'Comparing completed camera predictions with your aligned ground truth. Capture comparison to hold a frame.';
     if (this.el('gtStatus').textContent !== status) this.el('gtStatus').textContent = status;
     this.result = { mode: 'live-reference', detector: frame.detector, scores,
+      boundary: this.renderBoundary(reference, prediction, W, H),
       referenceView: view, alignment, width: W, height: H, capturedAtMs: frame.capturedAt,
       scope: 'Photo GT fitted to lip aperture plus manual alignment; not frame-specific accuracy',
       predictionMask: Array.from(prediction), alignedReferenceMask: Array.from(reference) };
+  }
+
+  renderBoundary(truth, prediction, w, h) {
+    const boundary = vectorBoundaryDistance(traceLabelContours(truth,w,h),traceLabelContours(prediction,w,h),w,h,getBoundaryOptions());
+    this.el('gtBoundaryMetrics').textContent = `Boundary error: ${boundary.normalizedAssd?.toFixed(6) ?? '—'} · Hausdorff: ${formatDistance(boundary.hausdorffPx)} px · SDF coverage: ${formatCoverage(boundary.sdfCoverage)} within ${boundary.tolerancePx} px · ${formatPass(boundary.sdfPass)} (requires ${formatCoverage(boundary.requiredCoverage)}). ${boundary.status}`;
+    return boundary;
   }
 
   async loadAssets() {
@@ -258,9 +273,11 @@ export class GroundTruthComparison {
         expandCropMask(prediction, small, W, H, rect);
       }
       const scores = scorePhotoMasks(truth, prediction);
+      this.photoPrediction = prediction;
       this.result = { source: 'photo_area_clean.jpg', groundTruth: 'photo_area.jpg filled outlines',
         detector: selection.key, parameters: detector.params ?? selection.params, timestamp: new Date().toISOString(),
         scope: 'Fixed photo crops; detector only, no live tracking or landmark gating',
+        boundary: this.renderBoundary(truth, prediction, PHOTO_GT.width, PHOTO_GT.height),
         scores, perCard: PHOTO_GT.cards.map(rect => scorePhotoMasks(truth, prediction, [rect])) };
       this.paintMask(this.el('gtPrediction'), clean, truth, prediction, false);
       this.paintMask(this.el('gtErrors'), clean, truth, prediction, true);

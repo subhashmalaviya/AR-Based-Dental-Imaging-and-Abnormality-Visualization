@@ -21,10 +21,10 @@ export function frameTruth(doc,context,w,h) {
   const ids=new Set(overrides.map(c=>c.id));
   return {labels,contours:[...traceLabelContours(labels,w,h).filter(c=>!ids.has(c.id)),...overrides]};
 }
-export function evaluateVideoFrame(labels,w,h,{truth=null,previous=null}={}) {
+export function evaluateVideoFrame(labels,w,h,{truth=null,previous=null,boundaryOptions={}}={}) {
   const contours=traceLabelContours(labels,w,h);
-  const gt=truth?vectorBoundaryDistance(truth.contours,contours,w,h):null;
-  const temporal=previous?vectorBoundaryDistance(previous,contours,w,h):null;
+  const gt=truth?vectorBoundaryDistance(truth.contours,contours,w,h,boundaryOptions):null;
+  const temporal=previous?vectorBoundaryDistance(previous,contours,w,h,boundaryOptions):null;
   return {contours,gt,temporal,normalizedBoundaryError:gt?.normalizedAssd??null,
     temporalBoundaryChange:temporal?.normalizedAssd??null,
     status:gt?.status??'unlabelled — temporal change only'};

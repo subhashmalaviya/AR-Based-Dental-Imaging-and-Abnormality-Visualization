@@ -1,3 +1,4 @@
+import { boundaryOptions } from './boundaryOptions.js';
 // Exact Euclidean distance transform via separable lower envelopes of parabolas.
 // Felzenszwalb & Huttenlocher: https://www.cs.cornell.edu/~dph/papers/dt.pdf
 function squaredDistanceTransform(mask, w, h) {
@@ -46,22 +47,31 @@ export function labelBoundary(labels, w, h) {
   return boundary;
 }
 
-export function boundaryDistance(truth, prediction, w, h, pixelsPerMm = null, diagonal = Math.hypot(w, h)) {
+export function boundaryDistance(truth, prediction, w, h, pixelsPerMm = null, diagonal = Math.hypot(w, h), options = {}) {
+  const { tolerancePx, requiredCoverage } = boundaryOptions(options);
   const a = labelBoundary(truth, w, h), b = labelBoundary(prediction, w, h);
   const n = a.reduce((s, x) => s + x, 0), m = b.reduce((s, x) => s + x, 0);
   const calibration = Number.isFinite(pixelsPerMm) && pixelsPerMm > 0 ? pixelsPerMm : null;
   const result = { assdPx: null, assdMm: null, normalizedAssd: null, chamferPx: null, chamferMm: null,
     truthToPredictionPx: null, predictionToTruthPx: null,
+    hausdorffPx: null, normalizedHausdorff: null, sdfCoverage: n && !m ? 0 : null, sdfError: n && !m ? 1 : null, sdfPass: n && !m ? false : null, tolerancePx, requiredCoverage,
     truthBoundaryPixels: n, predictionBoundaryPixels: m, pixelsPerMm: calibration,
     normalizationDiagonalPx: diagonal, status: !n && !m ? 'both empty' : !n ? 'missing ground truth' : !m ? 'missing prediction' : 'ok' };
   if (!n || !m) return result;
   const directedSum = (source, target) => {
     const squared = squaredDistanceTransform(target, w, h);
-    let sum = 0;
-    for (let i = 0; i < source.length; i++) if (source[i]) sum += Math.sqrt(squared[i]);
-    return sum;
+    let sum = 0, max = 0, within = 0;
+    for (let i = 0; i < source.length; i++) if (source[i]) {
+      const d = Math.sqrt(squared[i]); sum += d; max = Math.max(max,d); if(d<=tolerancePx+1e-10)within++;
+    }
+    return {sum,max,within};
   };
-  const ab = directedSum(a, b), ba = directedSum(b, a);
+  const forward = directedSum(a, b), backward = directedSum(b, a), ab = forward.sum, ba = backward.sum;
+  result.hausdorffPx = Math.max(forward.max, backward.max);
+  result.normalizedHausdorff = result.hausdorffPx / diagonal;
+  result.sdfCoverage = (forward.within + backward.within) / (n + m);
+  result.sdfError = 1 - result.sdfCoverage;
+  result.sdfPass = result.sdfCoverage + 1e-10 >= requiredCoverage;
   result.truthToPredictionPx = ab / n; result.predictionToTruthPx = ba / m;
   // ASSD pools all surface samples; symmetric Chamfer weights directions equally.
   result.assdPx = (ab + ba) / (n + m);

@@ -1,3 +1,5 @@
+import { getBoundaryOptions, onBoundaryOptions } from './boundaryMetricSettings.js';
+import { formatDistance, formatCoverage, formatPass, summarizeBoundaryMetrics } from '../eval/boundaryOptions.js';
 import { readImageFile } from './imageInput.js';
 import { evaluationDetector, inferCanvas } from '../eval/inferCanvas.js';
 import { pairPatientFiles, parsePatientTruth, scoreBatchPrediction, summarizeBatch } from '../eval/batchEvaluation.js';
@@ -18,7 +20,7 @@ export class BatchEvaluation {
       <p data-b="status" role="status"></p><progress data-b="progress" value="0" max="1" style="width:100%"></progress>
       <p data-b="summary"></p>
       <p class="hint">Error is the same normalized bidirectional boundary distance as the photo comparison: 0 = exact match; lower is better. Overall error is the mean of scored images. Missing boundaries and failed entries are reported separately. Uses the selected Detector, the full image (or an explicitly saved crop), and never a crop derived from GT.</p>
-      <div style="overflow:auto;max-height:440px"><table><thead><tr><th>Patient</th><th>Image</th><th>Boundary error (0–1)</th><th>Status</th></tr></thead><tbody data-b="rows"></tbody></table></div>
+      <div style="overflow:auto;max-height:440px"><table><thead><tr><th>Patient</th><th>Image</th><th>Boundary error (0–1)</th><th>Hausdorff (px)</th><th>SDF coverage</th><th>SDF check</th><th>Status</th></tr></thead><tbody data-b="rows"></tbody></table></div>
       </details>`;
     this.el = key => root.querySelector(`[data-b="${key}"]`);
     this.el('scan').onclick = () => this.scan();
@@ -75,7 +77,7 @@ export class BatchEvaluation {
     this.cancelled = false; this.lock(true);
     const selection = structuredClone(this.getDetector()); let detector;
     this.runInfo = { timestamp: new Date().toISOString(), source: this.source, detector: selection.key,
-      model: selection.key === 'learned' ? this.modelUrl : selection.key === 'classical' ? 'Classical CV' : JSON.stringify(selection.options), parameters: selection.params };
+      model: selection.key === 'learned' ? this.modelUrl : selection.key === 'classical' ? 'Classical CV' : JSON.stringify(selection.options), parameters: selection.params, boundaryOptions: getBoundaryOptions() };
     this.rows = this.pairs.map(p => ({ patient: p.patient, image: p.image?.path ?? '', annotation: p.annotation?.path ?? '',
       status: p.issue ? 'unpaired' : 'pending', details: p.issue ?? '', error: null }));
     this.render(); this.el('progress').value = 0;
@@ -105,7 +107,7 @@ export class BatchEvaluation {
               input.getContext('2d').drawImage(clean, x, y, w, h, 0, 0, w, h);
             }
             const prediction = await inferCanvas(detector, input);
-            Object.assign(row, scoreBatchPrediction(truth.contours, prediction.labels, w, h), { elapsedMs: prediction.elapsedMs });
+            Object.assign(row, scoreBatchPrediction(truth.contours, prediction.labels, w, h, this.runInfo.boundaryOptions), { elapsedMs: prediction.elapsedMs });
           } catch (e) { row.status = 'failed'; row.details = e.message; }
           finally { if (input && input !== clean) input.width = input.height = 1; if (clean) clean.width = clean.height = 1; }
         }
@@ -122,12 +124,12 @@ export class BatchEvaluation {
     }
   }
   render() {
-    const summary = summarizeBatch(this.rows);
-    this.el('summary').textContent = `Overall mean boundary error: ${format(summary.mean)} · ${summary.scored}/${summary.total} entries scored · ${summary.unavailable} without a score`;
+    const summary = summarizeBatch(this.rows), metrics = summarizeBoundaryMetrics(this.rows);
+    this.el('summary').textContent = `Overall mean boundary error: ${format(summary.mean)} · ${summary.scored}/${summary.total} entries scored · ${summary.unavailable} without a score · Mean Hausdorff: ${formatDistance(metrics.meanHausdorffPx)} px · Mean SDF coverage: ${formatCoverage(metrics.meanSdfCoverage)} · SDF: ${metrics.sdfPassed} pass / ${metrics.sdfFailed} fail / ${metrics.sdfUnavailable} unavailable${this.runInfo?.boundaryOptions ? ` (tolerance ${this.runInfo.boundaryOptions.tolerancePx} px; required ${formatCoverage(this.runInfo.boundaryOptions.requiredCoverage)})` : ""}`;
     const body = this.el('rows'); body.replaceChildren();
     for (const row of this.rows) {
       const tr = document.createElement('tr');
-      for (const text of [row.patient, row.image || row.annotation, format(row.error), [row.status, row.details].filter(Boolean).join(': ')]) {
+      for (const text of [row.patient, row.image || row.annotation, format(row.error), formatDistance(row.boundary?.hausdorffPx), formatCoverage(row.boundary?.sdfCoverage), formatPass(row.boundary?.sdfPass), [row.status, row.details].filter(Boolean).join(': ')]) {
         const td = document.createElement('td'); td.textContent = text; tr.append(td);
       }
       body.append(tr);

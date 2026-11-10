@@ -34,6 +34,7 @@
       <canvas id="overlay"></canvas>
     </div>
     <section id="phoneCapture" class="panel__block gt-comparison" aria-label="Phone and camera input"></section>
+    <section id="boundaryMetricSettings" class="panel__block gt-comparison" aria-label="Boundary evaluation settings"></section>
     <section id="batchEvaluation" class="panel__block gt-comparison" aria-label="Batch patient evaluation"></section>
     <section id="videoEvaluation" class="panel__block gt-comparison">
       <details><summary><strong>Upload Video — teeth detection &amp; frame extraction</strong></summary>
@@ -146,15 +147,18 @@
         </div>
         <div id="uploadResults" hidden>
           <h3>Overall boundary comparison</h3>
-          <dl class="gt-metrics gt-metrics--single">
+          <dl class="gt-metrics">
             <div><dt>Normalized boundary error (0–1)</dt><dd id="uploadBoundaryError">—</dd></div>
+            <div><dt>Hausdorff distance (px)</dt><dd id="uploadHausdorff">—</dd></div>
+            <div><dt>SDF within tolerance</dt><dd id="uploadSdf">—</dd></div>
+            <div><dt>SDF check</dt><dd id="uploadSdfPass">—</dd></div>
           </dl>
           <p class="hint">0 = exact boundary match. Lower is better. This number is the bidirectional Euclidean distance between vector borders, weighted by border length and divided by the selected image region’s diagonal. Use the same region when comparing runs.</p>
           <p id="uploadBoundaryStatus" class="hint" role="status"></p>
           <h3>Individual tooth comparison</h3>
           <p id="uploadToothSummary" class="hint"></p>
           <p class="hint">Each GT tooth is matched to at most one model tooth by overlap. Missed teeth and unmatched predictions remain visible. A model region spanning several teeth is reported as a merge; ground truth is never used to split the model output.</p>
-          <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>Boundary error (0–1)</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
+          <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>Boundary error (0–1)</th><th>Hausdorff (px)</th><th>SDF coverage</th><th>SDF check</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
           <figure><figcaption>Green: overlap · Red: extra prediction · Blue: missed ground truth</figcaption><canvas id="uploadErrorCanvas" aria-label="Pixel comparison"></canvas></figure>
           <p class="hint">Scores assume all teeth in the selected region are marked and both images are aligned. Unmarked pixels count as background.</p>
           <div class="buttons"><button id="uploadJson" class="btn" type="button">Download scores (JSON)</button><button id="uploadPredPng" class="btn" type="button">Download prediction mask</button></div>
@@ -191,6 +195,7 @@
           <img id="gtReferenceImage" width="880" height="450" alt="Your colored outlines around teeth in both reference views" /></figure>
       </div>
       <div id="gtPhotoResults" hidden>
+        <p id="gtBoundaryMetrics" class="hint"></p>
         <p id="gtScoreScope" class="hint"></p>
         <dl class="gt-metrics">
           <div><dt>IoU</dt><dd id="gtMetric_iou">—</dd></div>

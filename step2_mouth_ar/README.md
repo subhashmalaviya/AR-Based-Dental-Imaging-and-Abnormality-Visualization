@@ -1443,3 +1443,38 @@ Transfers use the selected server’s HTTP/HTTPS connection. In-app recording is
 silent and stops at 2 minutes; imported videos retain the existing 200 MB,
 10-minute, 4K limits. Unsupported video codecs need conversion to H.264 MP4 or
 WebM before inference.
+
+
+### Boundary metrics (photo, extracted video frame, reference and batch evaluation)
+
+The **Boundary evaluation settings** panel sets SDF tolerance in evaluated-image
+pixels (default 0.1) and required boundary coverage (default 95%). Existing image
+results update without rerunning inference. Batches freeze settings at the start;
+rerun a batch to apply new settings. Each Excel **Images** row includes normalized
+average boundary error, Hausdorff distance in pixels and normalized by region
+diagonal, SDF coverage, SDF error (1 − coverage), PASS/FAIL and the settings used.
+**Summary** includes mean/max image Hausdorff, mean image coverage, and pass/fail/
+unavailable counts. Each image has equal weight in means.
+
+Hausdorff is the maximum bidirectional nearest-border distance. SDF coverage is
+the fraction of both borders inside the absolute signed-distance tolerance band;
+sign is irrelevant because the criterion is |SDF| <= tolerance. Coverage and ASSD
+are weighted by arc length, retaining individual-tooth separators. Curve
+flattening tolerance is 0.005 px; midpoint samples are at most 0.05 px apart;
+Hausdorff also tests vertices. These approximate continuous vector distances.
+Subpixel coverage near the threshold depends on this discretization, and the
+existing average error may change slightly with the finer sampling. Pixels refer
+to the actual evaluation resolution, not zoom. Use consistent regions/resolutions
+for comparisons; no mm conversion is inferred without calibration.
+
+Missing predictions give 0 coverage and FAIL, with unavailable distance values.
+Missing GT, failed loads and unprocessed entries are unavailable, not perfect
+matches. Live aligned-photo reference remains geometric similarity, not
+frame-specific accuracy. Video temporal change remains motion-sensitive, not GT
+accuracy. The older point/box evaluation tool cannot measure tooth boundaries;
+use the contour editor for those metrics.
+
+CLI model benchmarking accepts `boundaryOptions` in models.json, for example
+`{"tolerancePx":0.1,"requiredCoverage":0.95}`. Per-sample boundary objects and
+benchmark summaries contain the added metrics; model selection still uses the
+existing validation criteria.

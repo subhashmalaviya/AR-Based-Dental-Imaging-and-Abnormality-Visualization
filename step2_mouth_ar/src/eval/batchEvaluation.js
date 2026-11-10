@@ -55,10 +55,10 @@ export function parsePatientTruth(doc, width, height, imageName) {
   return { crop: [0, 0, width, height], contours, patientId: String(doc.patient_id ?? ''), caseName: String(doc.case_name ?? '') };
 }
 
-export function scoreBatchPrediction(truth, prediction, width, height) {
+export function scoreBatchPrediction(truth, prediction, width, height, options = {}) {
   const contours = traceLabelContours(prediction, width, height);
-  const distance = vectorBoundaryDistance(truth, contours, width, height);
-  return { error: distance.normalizedAssd, status: distance.status, gtTeeth: new Set(truth.map(c => c.id)).size,
+  const distance = vectorBoundaryDistance(truth, contours, width, height, options);
+  return { boundary: distance, error: distance.normalizedAssd, status: distance.status, gtTeeth: new Set(truth.map(c => c.id)).size,
     predictedTeeth: new Set(contours.map(c => c.id)).size };
 }
 

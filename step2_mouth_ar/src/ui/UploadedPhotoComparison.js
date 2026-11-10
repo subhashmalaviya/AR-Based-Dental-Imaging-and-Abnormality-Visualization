@@ -1,3 +1,5 @@
+import { getBoundaryOptions, onBoundaryOptions } from './boundaryMetricSettings.js';
+import { formatDistance, formatCoverage, formatPass, summarizeBoundaryMetrics } from '../eval/boundaryOptions.js';
 import { readImageFile, drawImagePreview, checkEditCrop } from './imageInput.js';
 import { evaluationDetector } from '../eval/inferCanvas.js';
 import { extractUploadTruth, rgbHue } from '../eval/uploadGroundTruth.js';
@@ -15,6 +17,7 @@ export class UploadedPhotoComparison {
     Object.assign(this, { root, modelUrl, getDetector, setBusy });
     this.el = id => root.querySelector(`#${id}`);
     this.revision = 0;
+    onBoundaryOptions(() => { if (!this.busy) this.updateComparison(); });
     this.editor = new ToothMaskEditor(this.el('uploadEditor'), labels => {
       this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
       this.updateComparison();
@@ -332,10 +335,13 @@ export class UploadedPhotoComparison {
     const scores = scoreReferenceOverlap(this.truth, this.prediction);
     const perTooth = compareInstances(this.truthLabels, this.predictionLabels, this.input.width);
     const gtContours = this.editor.getContours(), predContours = traceLabelContours(this.predictionLabels, this.input.width, this.input.height);
-    const boundary = vectorBoundaryDistance(gtContours, predContours, this.input.width, this.input.height);
-    for (const row of perTooth.rows) row.boundary = row.prediction == null ? null : vectorBoundaryDistance(
-      gtContours.filter(c => c.id === row.groundTruth), predContours.filter(c => c.id === row.prediction), this.input.width, this.input.height);
+    const boundary = vectorBoundaryDistance(gtContours, predContours, this.input.width, this.input.height, getBoundaryOptions());
+    for (const row of perTooth.rows) row.boundary = vectorBoundaryDistance(
+      gtContours.filter(c => c.id === row.groundTruth), predContours.filter(c => c.id === row.prediction), this.input.width, this.input.height, getBoundaryOptions());
     for (const row of perTooth.rows) row.normalizedBoundaryError = row.boundary?.normalizedAssd ?? null;
+    this.el('uploadHausdorff').textContent = formatDistance(boundary.hausdorffPx);
+    this.el('uploadSdf').textContent = `${formatCoverage(boundary.sdfCoverage)} within ${boundary.tolerancePx} px`;
+    this.el('uploadSdfPass').textContent = `${formatPass(boundary.sdfPass)} (requires ${formatCoverage(boundary.requiredCoverage)})`;
     this.el('uploadBoundaryError').textContent = formatError(boundary.normalizedAssd);
     this.el('uploadBoundaryStatus').textContent = boundary.status === 'ok' ? ''
       : `Distance unavailable: ${boundary.status}. Missing boundaries are not a perfect match.`;
@@ -344,7 +350,7 @@ export class UploadedPhotoComparison {
       boundaryDefinition: boundary.definition,
       normalizedBoundaryError: boundary.normalizedAssd,
       ...this.runInfo, extraction: this.extractionOptions, manualEditOperations: this.manualEdits,
-      scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall scores use binary unions.' };
+      scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall boundary scores retain all tooth borders; area scores use binary unions.' };
     this.el('uploadToothSummary').textContent = `${perTooth.groundTruthCount} GT teeth · ${perTooth.predictionCount} model teeth · ${perTooth.rows.filter(row => row.prediction != null).length} compared pairs · ${perTooth.extraPredictions.length} unmatched predictions`;
     const body = this.el('uploadToothRows'); body.replaceChildren();
     for (const row of perTooth.rows) {
@@ -353,14 +359,14 @@ export class UploadedPhotoComparison {
       if (row.splitAcross.length) notes.push(`GT split across P${row.splitAcross.join(', P')}`);
       const tr = document.createElement('tr');
       for (const value of [`T${row.groundTruth}`, row.prediction == null ? '—' : `P${row.prediction}`,
-        formatError(row.normalizedBoundaryError), notes.join('; ')]) {
+        formatError(row.normalizedBoundaryError), formatDistance(row.boundary.hausdorffPx), formatCoverage(row.boundary.sdfCoverage), formatPass(row.boundary.sdfPass), notes.join('; ')]) {
         const td = document.createElement('td'); td.textContent = value; tr.append(td);
       }
       body.append(tr);
     }
     for (const p of perTooth.extraPredictions) {
       const tr = document.createElement('tr');
-      for (const value of ['—', `P${p.id}`, '—', 'Unmatched prediction']) {
+      for (const value of ['—', `P${p.id}`, '—', '—', '—', 'Unavailable', 'Unmatched prediction']) {
         const td = document.createElement('td'); td.textContent = value; tr.append(td);
       }
       body.append(tr);

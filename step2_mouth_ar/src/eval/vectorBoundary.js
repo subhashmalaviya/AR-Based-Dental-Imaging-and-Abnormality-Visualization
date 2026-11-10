@@ -1,3 +1,4 @@
+import { boundaryOptions } from './boundaryOptions.js';
 // Coordinates are native crop pixels. Raster contours follow pixel CELL EDGES.
 // Curves are periodic cubic interpolating splines through editable knots.
 export function traceLabelContours(labels, w, h) {
@@ -96,7 +97,7 @@ export function validateVectorContours(value,w,h,labels=null) {
 }
 
 function segments(contours) {
-  return contours.flatMap(c=>{const p=flattenContour(c);return p.map((a,i)=>[a,p[(i+1)%p.length]])})
+  return contours.flatMap(c=>{const p=flattenContour(c, 0.005);return p.map((a,i)=>[a,p[(i+1)%p.length]])})
     .filter(([a,b])=>a[0]!==b[0]||a[1]!==b[1]);
 }
 function tree(lines) {
@@ -118,28 +119,41 @@ function nearest(p,node,best=Infinity) {
   if(boxDistance(p,a.bounds)>boxDistance(p,b.bounds)) [a,b]=[b,a];
   return nearest(p,b,nearest(p,a,best));
 }
-/** Arc-length weighted bidirectional Euclidean ASSD. Curves flatten to 0.1px;
- * midpoint quadrature spacing <=0.5px. Distance is to segments, not raster pixels.
- * Missing surfaces yield null, never a misleading zero. Shared tooth edges count
- * once for each tooth, preserving interdental instance boundaries. */
-export function vectorBoundaryDistance(truth,prediction,w,h) {
+/** Distances to vector segments, retaining interdental boundaries. The absolute
+ * SDF band is distance-to-boundary <= tolerance (inside/outside sign cancels).
+ * Hausdorff is sampled at <=0.05px including vertices; curves flatten to 0.005px.
+ * This is an approximation of continuous curves, not an exact analytic maximum.
+ * ASSD and SDF coverage weight both directions by arc length, not vertex count. */
+export function vectorBoundaryDistance(truth,prediction,w,h,options={}) {
   if(!(w>0&&h>0&&Number.isFinite(w+h)))throw new Error('Invalid image dimensions');
+  const { tolerancePx, requiredCoverage } = boundaryOptions(options);
   const a=segments(truth),b=segments(prediction),diagonal=Math.hypot(w,h);
   const status=!a.length&&!b.length?'both empty':!a.length?'missing ground truth':!b.length?'missing prediction':'ok';
   const result={status,assdPx:null,assdMm:null,normalizedAssd:null,normalizationDiagonalPx:diagonal,
-    definition:'arc-length weighted bidirectional Euclidean ASSD; curve flattening 0.1px, sampling <=0.5px; pixel-cell edge prediction contours'};
+    hausdorffPx:null,normalizedHausdorff:null,sdfCoverage:status==='missing prediction'?0:null,
+    sdfError:status==='missing prediction'?1:null,sdfPass:status==='missing prediction'?false:null,
+    tolerancePx,requiredCoverage,samplingStepPx:0.05,flattenTolerancePx:0.005,
+    definition:'Arc-length weighted bidirectional Euclidean ASSD and absolute-SDF tolerance coverage; Hausdorff maximum over samples including vertices. Curve flattening 0.005px; sampling <=0.05px; prediction contours follow pixel-cell edges. Normalized distances divide by evaluated region diagonal. Missing boundaries have unavailable distances, not zero.'};
   if(status!=='ok')return result;
   const integrate=(source,target)=>{
-    const index=tree(target.slice());let sum=0,length=0;
+    const index=tree(target.slice());let sum=0,length=0,within=0,max=0;
     for(const [a,b] of source) {
-      const l=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.ceil(l/0.5);
-      for(let k=0;k<n;k++){const t=(k+0.5)/n;sum+=Math.sqrt(nearest([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])],index))*l/n;}
+      const l=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.ceil(l/result.samplingStepPx);
+      max=Math.max(max,Math.sqrt(nearest(a,index)),Math.sqrt(nearest(b,index)));
+      for(let k=0;k<n;k++){
+        const t=(k+0.5)/n,d=Math.sqrt(nearest([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])],index));
+        sum+=(d<1e-10?0:d)*l/n; max=Math.max(max,d<1e-10?0:d);
+        if(d<=tolerancePx+1e-10)within+=l/n;
+      }
       length+=l;
-    } return {sum,length};
+    } return {sum,length,within,max};
   };
-  const ab=integrate(a,b),ba=integrate(b,a);
-  return {...result,assdPx:(ab.sum+ba.sum)/(ab.length+ba.length),
-    normalizedAssd:(ab.sum+ba.sum)/(ab.length+ba.length)/diagonal,
+  const ab=integrate(a,b),ba=integrate(b,a),length=ab.length+ba.length;
+  const coverage=Math.min(1,Math.max(0,(ab.within+ba.within)/length)), rawHd=Math.max(ab.max,ba.max), hd=rawHd<1e-10?0:rawHd;
+  return {...result,assdPx:(ab.sum+ba.sum)/length,normalizedAssd:(ab.sum+ba.sum)/length/diagonal,
+    hausdorffPx:hd,normalizedHausdorff:hd/diagonal,sdfCoverage:coverage,sdfError:1-coverage,
+    sdfPass:coverage+1e-10>=requiredCoverage,
+    truthWithinTolerance:Math.min(1,ab.within/ab.length),predictionWithinTolerance:Math.min(1,ba.within/ba.length),
     truthToPredictionPx:ab.sum/ab.length,predictionToTruthPx:ba.sum/ba.length};
 }
 

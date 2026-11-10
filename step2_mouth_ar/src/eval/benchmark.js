@@ -1,7 +1,8 @@
+import { summarizeBoundaryMetrics } from './boundaryOptions.js';
 // Pure aggregation; no auto-deployment, no ranking unlabelled temporal scores.
 export function summarizeBenchmark(rows) {
   const gt=rows.filter(r=>r.hasGroundTruth);
-  return {frames:rows.length,labelledFrames:gt.length,
+  return {...summarizeBoundaryMetrics(gt),frames:rows.length,labelledFrames:gt.length,
     meanNormalizedBoundaryError:gt.length?gt.reduce((s,r)=>s+(r.normalizedBoundaryError??1),0)/gt.length:null,
     failedOrMissingPredictions:gt.filter(r=>r.normalizedBoundaryError==null).length,
     missingTeeth:gt.reduce((s,r)=>s+(r.missingTeeth??0),0),extraPredictions:gt.reduce((s,r)=>s+(r.extraPredictions??0),0),

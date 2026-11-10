@@ -1,3 +1,4 @@
+import { mountBoundarySettings } from './ui/boundaryMetricSettings.js';
 import { PhoneCapture } from './ui/PhoneCapture.js';
 import { BatchEvaluation } from './ui/BatchEvaluation.js';
 import { VideoEvaluation } from './ui/VideoEvaluation.js';
@@ -62,6 +63,7 @@ const toothRenderer = new ToothOverlayRenderer(ctx);
 const debugRenderer = new DebugRenderer(ctx);
 const ar3d = new AR3DRenderer(ctx);
 let transformerConfig = null;
+mountBoundarySettings(document.getElementById('boundaryMetricSettings'));
 const groundTruth = new GroundTruthComparison({
   root: document.getElementById('groundTruthComparison'),
   modelUrl: MODEL_URL,
