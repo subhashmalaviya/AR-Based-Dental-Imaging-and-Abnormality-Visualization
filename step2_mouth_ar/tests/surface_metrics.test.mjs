@@ -71,3 +71,40 @@ test('Excel includes every image metric, numeric summaries, settings, and unavai
   assert.equal(images.getCell('K2').value,.1);assert.equal(images.getCell('L2').value,.95);
   close(s.getCell('B19').value.result,.5);assert.equal(s.getCell('B21').value.result,1);assert.equal(s.getCell('B22').value.result,1);
 });
+test('point-normalized metrics, absolute max error, and 780px missed tooth scenario on high-res image', () => {
+  const w = 2896, h = 1944;
+  const diagonal = Math.hypot(w, h);
+  const gtT1 = square(550, 850, 60);
+  const detectedTeethGT = [];
+  const detectedTeethPred = [];
+  // 11 detected teeth (total 12 GT teeth as in standard dental photo)
+  for (let i = 0; i < 11; i++) {
+    const x = 1390 + i * 110;
+    detectedTeethGT.push({ ...square(x, 850, 60), id: i + 2 });
+    detectedTeethPred.push({ ...square(x + 1, 850 + 1, 60), id: i + 2 });
+  }
+  const allGT = [gtT1, ...detectedTeethGT];
+  const predMissedT1 = detectedTeethPred;
+
+  const result = vectorBoundaryDistance(allGT, predMissedT1, w, h);
+
+  assert.ok(result.truthBoundaryPoints > 0);
+  assert.ok(result.predictionBoundaryPoints > 0);
+  assert.equal(result.totalBoundaryPoints, result.truthBoundaryPoints + result.predictionBoundaryPoints);
+
+  assert.ok(result.maxErrorPx >= 750 && result.maxErrorPx <= 850, `Expected maxErrorPx ~780px, got ${result.maxErrorPx}`);
+  assert.equal(result.hausdorffPx, result.maxErrorPx);
+  assert.equal(result.absoluteMaxErrorPx, result.maxErrorPx);
+
+  close(result.normalizedMaxError, result.maxErrorPx / diagonal);
+  close(result.normalizedHausdorff, result.maxErrorPx / diagonal);
+  assert.ok(result.normalizedMaxError < 0.25, `Normalized max error should be ~0.22, got ${result.normalizedMaxError}`);
+
+  assert.equal(result.averageErrorPx, result.assdPx);
+  assert.equal(result.normalizedAverageError, result.normalizedAssd);
+  assert.ok(result.averageErrorPx < 100, `Average error should be <100px, got ${result.averageErrorPx}`);
+  assert.ok(result.normalizedAverageError < 0.03, `Normalized average error should be <0.03, got ${result.normalizedAverageError}`);
+
+  // With 12 teeth, 1 missed tooth represents ~4.3% of boundary points (< 5%), so 95% HD isolates the well-matched teeth
+  assert.ok(result.hausdorff95Px < 5, `95% Hausdorff distance should resist missed-tooth outlier, got ${result.hausdorff95Px}`);
+});

@@ -53,9 +53,12 @@ export function boundaryDistance(truth, prediction, w, h, pixelsPerMm = null, di
   const n = a.reduce((s, x) => s + x, 0), m = b.reduce((s, x) => s + x, 0);
   const calibration = Number.isFinite(pixelsPerMm) && pixelsPerMm > 0 ? pixelsPerMm : null;
   const result = { assdPx: null, assdMm: null, normalizedAssd: null, chamferPx: null, chamferMm: null,
+    averageErrorPx: null, averageErrorMm: null, normalizedAverageError: null,
     truthToPredictionPx: null, predictionToTruthPx: null,
-    hausdorffPx: null, normalizedHausdorff: null, sdfCoverage: n && !m ? 0 : null, sdfError: n && !m ? 1 : null, sdfPass: n && !m ? false : null, tolerancePx, requiredCoverage,
-    truthBoundaryPixels: n, predictionBoundaryPixels: m, pixelsPerMm: calibration,
+    hausdorffPx: null, hausdorffMm: null, normalizedHausdorff: null,
+    maxErrorPx: null, maxErrorMm: null, absoluteMaxErrorPx: null, normalizedMaxError: null,
+    sdfCoverage: n && !m ? 0 : null, sdfError: n && !m ? 1 : null, sdfPass: n && !m ? false : null, tolerancePx, requiredCoverage,
+    truthBoundaryPixels: n, predictionBoundaryPixels: m, truthBoundaryPoints: n, predictionBoundaryPoints: m, totalBoundaryPoints: n + m, pixelsPerMm: calibration,
     normalizationDiagonalPx: diagonal, status: !n && !m ? 'both empty' : !n ? 'missing ground truth' : !m ? 'missing prediction' : 'ok' };
   if (!n || !m) return result;
   const directedSum = (source, target) => {
@@ -75,10 +78,21 @@ export function boundaryDistance(truth, prediction, w, h, pixelsPerMm = null, di
   result.truthToPredictionPx = ab / n; result.predictionToTruthPx = ba / m;
   // ASSD pools all surface samples; symmetric Chamfer weights directions equally.
   result.assdPx = (ab + ba) / (n + m);
+  result.averageErrorPx = result.assdPx;
   result.chamferPx = (ab / n + ba / m) / 2;
   result.normalizedAssd = result.assdPx / diagonal;
+  result.normalizedAverageError = result.normalizedAssd;
   result.assdMm = calibration ? result.assdPx / calibration : null;
+  result.averageErrorMm = result.assdMm;
   result.chamferMm = calibration ? result.chamferPx / calibration : null;
+  result.maxErrorPx = result.hausdorffPx;
+  result.absoluteMaxErrorPx = result.hausdorffPx;
+  result.normalizedMaxError = result.normalizedHausdorff;
+  result.hausdorffMm = calibration ? result.hausdorffPx / calibration : null;
+  result.maxErrorMm = result.hausdorffMm;
+  result.truthBoundaryPoints = n;
+  result.predictionBoundaryPoints = m;
+  result.totalBoundaryPoints = n + m;
   return result;
 }
 

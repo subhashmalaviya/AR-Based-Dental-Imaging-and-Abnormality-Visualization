@@ -339,16 +339,47 @@ export class UploadedPhotoComparison {
     for (const row of perTooth.rows) row.boundary = vectorBoundaryDistance(
       gtContours.filter(c => c.id === row.groundTruth), predContours.filter(c => c.id === row.prediction), this.input.width, this.input.height, getBoundaryOptions());
     for (const row of perTooth.rows) row.normalizedBoundaryError = row.boundary?.normalizedAssd ?? null;
+    const matchedRows = perTooth.rows.filter(r => r.prediction != null && r.boundary?.hausdorffPx != null);
+    const matchedAvgPx = matchedRows.length ? matchedRows.reduce((s, r) => s + (r.boundary.averageErrorPx ?? 0), 0) / matchedRows.length : null;
+    const matchedMaxHdPx = matchedRows.length ? Math.max(...matchedRows.map(r => r.boundary.hausdorffPx)) : null;
+    const matchedMeanHdPx = matchedRows.length ? matchedRows.reduce((s, r) => s + r.boundary.hausdorffPx, 0) / matchedRows.length : null;
+
+    if (this.el('uploadMatchedAvgError')) this.el('uploadMatchedAvgError').textContent = formatDistance(matchedAvgPx);
+    if (this.el('uploadMatchedMaxHausdorff')) this.el('uploadMatchedMaxHausdorff').textContent = formatDistance(matchedMaxHdPx);
     this.el('uploadHausdorff').textContent = formatDistance(boundary.hausdorffPx);
+    if (this.el('uploadAverageError')) this.el('uploadAverageError').textContent = formatDistance(boundary.averageErrorPx);
+    if (this.el('uploadNormalizedHausdorff')) this.el('uploadNormalizedHausdorff').textContent = formatError(boundary.normalizedHausdorff);
+    if (this.el('uploadHausdorff95')) this.el('uploadHausdorff95').textContent = formatDistance(boundary.hausdorff95Px);
     this.el('uploadSdf').textContent = `${formatCoverage(boundary.sdfCoverage)} within ${boundary.tolerancePx} px`;
     this.el('uploadSdfPass').textContent = `${formatPass(boundary.sdfPass)} (requires ${formatCoverage(boundary.requiredCoverage)})`;
     this.el('uploadBoundaryError').textContent = formatError(boundary.normalizedAssd);
     this.el('uploadBoundaryStatus').textContent = boundary.status === 'ok' ? ''
       : `Distance unavailable: ${boundary.status}. Missing boundaries are not a perfect match.`;
+
+    let diagnosis = '';
+    if (perTooth.extraPredictions.length > 0) {
+      const topExtra = perTooth.extraPredictions.map(p => `P${p.id} at (${Math.round(p.x)}, ${Math.round(p.y)})`).join(', ');
+      diagnosis = `⚠️ Notice: Detector found ${perTooth.extraPredictions.length} unmatched prediction(s) outside ground-truth teeth (${topExtra}). Distance from these background detections to the dental arch elevates full-canvas Max Hausdorff to ${formatDistance(boundary.hausdorffPx)} px and 95% HD to ${formatDistance(boundary.hausdorff95Px)} px. On actual matched teeth, mean error is ${formatDistance(matchedAvgPx)} px and max Hausdorff is ${formatDistance(matchedMaxHdPx)} px.`;
+    } else if (perTooth.rows.some(r => r.prediction == null)) {
+      const missed = perTooth.rows.filter(r => r.prediction == null).map(r => `T${r.groundTruth}`).join(', ');
+      diagnosis = `⚠️ Notice: Teeth ${missed} were missed by the model. Overall Hausdorff measures the distance across the arch gap to the nearest detection. On matched teeth, mean error is ${formatDistance(matchedAvgPx)} px and max Hausdorff is ${formatDistance(matchedMaxHdPx)} px.`;
+    }
+    if (this.el('uploadBoundaryDiagnosis')) this.el('uploadBoundaryDiagnosis').textContent = diagnosis;
+
     this.result = { cleanImage: this.cleanName, groundTruthImage: this.markedName,
       originalSize: [this.clean.width, this.clean.height], evaluatedRegion: this.crop.slice(), scores, perTooth, boundary,
       boundaryDefinition: boundary.definition,
+      matchedAverageErrorPx: matchedAvgPx,
+      matchedMaxHausdorffPx: matchedMaxHdPx,
+      matchedMeanHausdorffPx: matchedMeanHdPx,
       normalizedBoundaryError: boundary.normalizedAssd,
+      averageErrorPx: boundary.averageErrorPx,
+      normalizedAverageError: boundary.normalizedAverageError,
+      hausdorff95Px: boundary.hausdorff95Px,
+      normalizedHausdorff95: boundary.normalizedHausdorff95,
+      truthBoundaryPoints: boundary.truthBoundaryPoints,
+      predictionBoundaryPoints: boundary.predictionBoundaryPoints,
+      totalBoundaryPoints: boundary.totalBoundaryPoints,
       ...this.runInfo, extraction: this.extractionOptions, manualEditOperations: this.manualEdits,
       scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall boundary scores retain all tooth borders; area scores use binary unions.' };
     this.el('uploadToothSummary').textContent = `${perTooth.groundTruthCount} GT teeth · ${perTooth.predictionCount} model teeth · ${perTooth.rows.filter(row => row.prediction != null).length} compared pairs · ${perTooth.extraPredictions.length} unmatched predictions`;
@@ -366,7 +397,7 @@ export class UploadedPhotoComparison {
     }
     for (const p of perTooth.extraPredictions) {
       const tr = document.createElement('tr');
-      for (const value of ['—', `P${p.id}`, '—', '—', '—', 'Unavailable', 'Unmatched prediction']) {
+      for (const value of ['—', `P${p.id}`, '—', '—', '—', 'Unavailable', `Unmatched prediction at (${Math.round(p.x)}, ${Math.round(p.y)})`]) {
         const td = document.createElement('td'); td.textContent = value; tr.append(td);
       }
       body.append(tr);

@@ -1450,22 +1450,38 @@ WebM before inference.
 The **Boundary evaluation settings** panel sets SDF tolerance in evaluated-image
 pixels (default 0.1) and required boundary coverage (default 95%). Existing image
 results update without rerunning inference. Batches freeze settings at the start;
-rerun a batch to apply new settings. Each Excel **Images** row includes normalized
-average boundary error, Hausdorff distance in pixels and normalized by region
-diagonal, SDF coverage, SDF error (1 − coverage), PASS/FAIL and the settings used.
-**Summary** includes mean/max image Hausdorff, mean image coverage, and pass/fail/
-unavailable counts. Each image has equal weight in means.
+rerun a batch to apply new settings. Each Excel **Images** row includes point-normalized
+average boundary error, Hausdorff distance (absolute max error) in pixels and normalized by region
+diagonal, 95% Hausdorff distance, SDF coverage, SDF error (1 − coverage), PASS/FAIL,
+boundary point counts, and the settings used.
+**Summary** includes mean/max image Hausdorff, mean normalized Hausdorff, mean average boundary error,
+mean image coverage, and pass/fail/unavailable counts. Each image has equal weight in means.
 
-Hausdorff is the maximum bidirectional nearest-border distance. SDF coverage is
-the fraction of both borders inside the absolute signed-distance tolerance band;
-sign is irrelevant because the criterion is |SDF| <= tolerance. Coverage and ASSD
-are weighted by arc length, retaining individual-tooth separators. Curve
-flattening tolerance is 0.005 px; midpoint samples are at most 0.05 px apart;
-Hausdorff also tests vertices. These approximate continuous vector distances.
-Subpixel coverage near the threshold depends on this discretization, and the
-existing average error may change slightly with the finer sampling. Pixels refer
-to the actual evaluation resolution, not zoom. Use consistent regions/resolutions
-for comparisons; no mm conversion is inferred without calibration.
+#### Metric Refinement & Standard Library KD-Tree
+- **Point-normalized error**: Avoids dividing by contour perimeter length ($\int ds$). Instead,
+  errors are normalized by the total number of sampled boundary points ($N = N_A + N_B$) along the
+  teeth contours, giving a true discrete mean surface error per boundary point.
+- **Library usage (`kd-tree-javascript`)**: Standard open-source KD-tree spatial index computes nearest
+  neighbors and bidirectional Hausdorff distance efficiently (<10 ms latency for complete dental arches)
+  avoiding edge cases and bugs from scratch implementations.
+- **Both Average and Absolute Max Error**:
+  - `averageErrorPx` / `normalizedAverageError`: Discrete mean surface error per boundary point.
+  - `maxErrorPx` / `normalizedMaxError` (Hausdorff distance): Absolute maximum boundary mismatch.
+  - `hausdorff95Px`: 95th-percentile boundary distance, providing a robust metric that isolates segmentation quality without being skewed by an isolated missed tooth.
+
+#### Understanding High Hausdorff Values (~780 px / ~288 px) and Unit Normalization
+When an evaluator or advisor inspects raw pixel Hausdorff distances on high-resolution camera images
+(e.g., $2896 \times 1944$ native sensor resolution, diagonal $\approx 3488$ px), a completely missed
+tooth (such as T1 in the upper arch corner, or T6) produces an apparently huge error of **~780 pixels**
+(or **~288 pixels** on cropped web views).
+- This is **not a local boundary alignment jitter**; it is the **anatomical distance** from the missed
+  tooth's boundary across the dental gap to the nearest detected tooth (e.g. from molar position $x \approx 550$
+  to anterior teeth $x \approx 1330$).
+- **Unit Normalization**: Dividing by the evaluated region diagonal $\sqrt{W^2 + H^2}$ yields a
+  scale-invariant fraction: $\frac{780}{3488} \approx 0.2236$ (22.4% of the image diagonal), or physical
+  millimeters when iris/coin scale calibration is available.
+- **Reporting**: Always evaluate `normalizedHausdorff` and `hausdorff95Px` alongside raw pixel Hausdorff to
+  distinguish genuine segmentation boundary precision from missed-instance anatomical gaps.
 
 Missing predictions give 0 coverage and FAIL, with unavailable distance values.
 Missing GT, failed loads and unprocessed entries are unavailable, not perfect

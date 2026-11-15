@@ -1,4 +1,6 @@
 import { boundaryOptions } from './boundaryOptions.js';
+import kdTreePkg from 'kd-tree-javascript';
+const kdTree = kdTreePkg.kdTree || kdTreePkg.default?.kdTree || kdTreePkg;
 // Coordinates are native crop pixels. Raster contours follow pixel CELL EDGES.
 // Curves are periodic cubic interpolating splines through editable knots.
 export function traceLabelContours(labels, w, h) {
@@ -96,65 +98,152 @@ export function validateVectorContours(value,w,h,labels=null) {
   return structuredClone(value);
 }
 
-function segments(contours) {
-  return contours.flatMap(c=>{const p=flattenContour(c, 0.005);return p.map((a,i)=>[a,p[(i+1)%p.length]])})
-    .filter(([a,b])=>a[0]!==b[0]||a[1]!==b[1]);
-}
-function tree(lines) {
-  const bounds=[Infinity,Infinity,-Infinity,-Infinity];
-  for(const s of lines) for(const p of s) {
-    bounds[0]=Math.min(bounds[0],p[0]);bounds[1]=Math.min(bounds[1],p[1]);
-    bounds[2]=Math.max(bounds[2],p[0]);bounds[3]=Math.max(bounds[3],p[1]);
-  }
-  if(lines.length<=8)return {bounds,lines};
-  const axis=bounds[2]-bounds[0]>bounds[3]-bounds[1]?0:1;
-  lines.sort((a,b)=>a[0][axis]+a[1][axis]-b[0][axis]-b[1][axis]);
-  const m=Math.floor(lines.length/2);return {bounds,left:tree(lines.slice(0,m)),right:tree(lines.slice(m))};
-}
-const boxDistance=(p,b)=>Math.max(b[0]-p[0],0,p[0]-b[2])**2+Math.max(b[1]-p[1],0,p[1]-b[3])**2;
-function nearest(p,node,best=Infinity) {
-  if(boxDistance(p,node.bounds)>best)return best;
-  if(node.lines) {for(const [a,b] of node.lines)best=Math.min(best,dist2(p,a,b));return best;}
-  let a=node.left,b=node.right;
-  if(boxDistance(p,a.bounds)>boxDistance(p,b.bounds)) [a,b]=[b,a];
-  return nearest(p,b,nearest(p,a,best));
-}
-/** Distances to vector segments, retaining interdental boundaries. The absolute
- * SDF band is distance-to-boundary <= tolerance (inside/outside sign cancels).
- * Hausdorff is sampled at <=0.05px including vertices; curves flatten to 0.005px.
- * This is an approximation of continuous curves, not an exact analytic maximum.
- * ASSD and SDF coverage weight both directions by arc length, not vertex count. */
-export function vectorBoundaryDistance(truth,prediction,w,h,options={}) {
-  if(!(w>0&&h>0&&Number.isFinite(w+h)))throw new Error('Invalid image dimensions');
-  const { tolerancePx, requiredCoverage } = boundaryOptions(options);
-  const a=segments(truth),b=segments(prediction),diagonal=Math.hypot(w,h);
-  const status=!a.length&&!b.length?'both empty':!a.length?'missing ground truth':!b.length?'missing prediction':'ok';
-  const result={status,assdPx:null,assdMm:null,normalizedAssd:null,normalizationDiagonalPx:diagonal,
-    hausdorffPx:null,normalizedHausdorff:null,sdfCoverage:status==='missing prediction'?0:null,
-    sdfError:status==='missing prediction'?1:null,sdfPass:status==='missing prediction'?false:null,
-    tolerancePx,requiredCoverage,samplingStepPx:0.05,flattenTolerancePx:0.005,
-    definition:'Arc-length weighted bidirectional Euclidean ASSD and absolute-SDF tolerance coverage; Hausdorff maximum over samples including vertices. Curve flattening 0.005px; sampling <=0.05px; prediction contours follow pixel-cell edges. Normalized distances divide by evaluated region diagonal. Missing boundaries have unavailable distances, not zero.'};
-  if(status!=='ok')return result;
-  const integrate=(source,target)=>{
-    const index=tree(target.slice());let sum=0,length=0,within=0,max=0;
-    for(const [a,b] of source) {
-      const l=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.ceil(l/result.samplingStepPx);
-      max=Math.max(max,Math.sqrt(nearest(a,index)),Math.sqrt(nearest(b,index)));
-      for(let k=0;k<n;k++){
-        const t=(k+0.5)/n,d=Math.sqrt(nearest([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])],index));
-        sum+=(d<1e-10?0:d)*l/n; max=Math.max(max,d<1e-10?0:d);
-        if(d<=tolerancePx+1e-10)within+=l/n;
+export function sampleBoundaryPoints(contours, step = 0.5) {
+  const points = [];
+  for (const c of contours) {
+    const poly = flattenContour(c, 0.005);
+    if (!poly || poly.length < 2) continue;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len === 0) continue;
+      const count = Math.max(1, Math.ceil(len / step));
+      const prev = poly[(i - 1 + poly.length) % poly.length];
+      for (let k = 0; k < count; k++) {
+        const t = (k + 0.5) / count;
+        points.push({
+          x: a[0] + t * (b[0] - a[0]),
+          y: a[1] + t * (b[1] - a[1]),
+          segA: a, segB: b,
+          segPrevA: prev, segPrevB: a,
+          id: c.id
+        });
       }
-      length+=l;
-    } return {sum,length,within,max};
+    }
+  }
+  return points;
+}
+
+const pointToSegmentDist2 = (p, a, b) => {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy;
+  const t = l ? Math.max(0, Math.min(1, ((p.x - a[0]) * dx + (p.y - a[1]) * dy) / l)) : 0;
+  return (p.x - a[0] - t * dx) ** 2 + (p.y - a[1] - t * dy) ** 2;
+};
+
+/** Distances to vector segments, retaining interdental boundaries.
+ * Normalizes errors by the number of points from teeth boundaries, avoiding dividing by contour length.
+ * Computes both average error (mean surface distance) and absolute max error (Hausdorff distance)
+ * using standard open-source KD-tree spatial index (kd-tree-javascript).
+ * Provides unit-normalized metrics (divided by image/crop diagonal). */
+export function vectorBoundaryDistance(truth, prediction, w, h, options = {}) {
+  if (!(w > 0 && h > 0 && Number.isFinite(w + h))) throw new Error('Invalid image dimensions');
+  const { tolerancePx, requiredCoverage } = boundaryOptions(options);
+  const diagonal = Math.hypot(w, h);
+  const status = !truth.length && !prediction.length ? 'both empty' : !truth.length ? 'missing ground truth' : !prediction.length ? 'missing prediction' : 'ok';
+  const result = {
+    status,
+    assdPx: null, assdMm: null, normalizedAssd: null,
+    averageErrorPx: null, averageErrorMm: null, normalizedAverageError: null,
+    hausdorffPx: null, hausdorffMm: null, normalizedHausdorff: null,
+    maxErrorPx: null, maxErrorMm: null, absoluteMaxErrorPx: null, normalizedMaxError: null,
+    hausdorff95Px: null, normalizedHausdorff95: null,
+    normalizationDiagonalPx: diagonal,
+    truthBoundaryPoints: 0, predictionBoundaryPoints: 0, totalBoundaryPoints: 0,
+    sdfCoverage: status === 'missing prediction' ? 0 : null,
+    sdfError: status === 'missing prediction' ? 1 : null,
+    sdfPass: status === 'missing prediction' ? false : null,
+    tolerancePx, requiredCoverage,
+    definition: 'Point-normalized bidirectional Euclidean boundary distance (mean surface error) and absolute max error (Hausdorff distance) using standard KD-tree spatial index across teeth boundary points. Errors are normalized by the number of boundary points from teeth boundaries, avoiding division by contour length. Normalized metrics divide by the image region diagonal. Missing boundaries remain explicitly unavailable.'
   };
-  const ab=integrate(a,b),ba=integrate(b,a),length=ab.length+ba.length;
-  const coverage=Math.min(1,Math.max(0,(ab.within+ba.within)/length)), rawHd=Math.max(ab.max,ba.max), hd=rawHd<1e-10?0:rawHd;
-  return {...result,assdPx:(ab.sum+ba.sum)/length,normalizedAssd:(ab.sum+ba.sum)/length/diagonal,
-    hausdorffPx:hd,normalizedHausdorff:hd/diagonal,sdfCoverage:coverage,sdfError:1-coverage,
-    sdfPass:coverage+1e-10>=requiredCoverage,
-    truthWithinTolerance:Math.min(1,ab.within/ab.length),predictionWithinTolerance:Math.min(1,ba.within/ba.length),
-    truthToPredictionPx:ab.sum/ab.length,predictionToTruthPx:ba.sum/ba.length};
+  if (status !== 'ok') return result;
+
+  const step = options.samplingStepPx ?? (diagonal <= 50 ? 0.05 : diagonal <= 500 ? 0.25 : 1.0);
+  const ptsA = sampleBoundaryPoints(truth, step);
+  const ptsB = sampleBoundaryPoints(prediction, step);
+  if (!ptsA.length || !ptsB.length) {
+    const s = !ptsA.length && !ptsB.length ? 'both empty' : !ptsA.length ? 'missing ground truth' : 'missing prediction';
+    return { ...result, status: s, sdfCoverage: s === 'missing prediction' ? 0 : null, sdfError: s === 'missing prediction' ? 1 : null, sdfPass: s === 'missing prediction' ? false : null };
+  }
+
+  const treeB = new kdTree(ptsB, (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2, ['x', 'y']);
+  const treeA = new kdTree(ptsA, (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2, ['x', 'y']);
+
+  const query = (sourcePts, tree) => {
+    let sum = 0, max = 0, within = 0;
+    const distances = new Float64Array(sourcePts.length);
+    const k = Math.min(3, tree.root ? 3 : 1);
+    for (let i = 0; i < sourcePts.length; i++) {
+      const p = sourcePts[i];
+      const candidates = tree.nearest(p, k);
+      let minD2 = Infinity;
+      for (const [cand] of candidates) {
+        minD2 = Math.min(
+          minD2,
+          pointToSegmentDist2(p, cand.segA, cand.segB),
+          pointToSegmentDist2(p, cand.segPrevA, cand.segPrevB)
+        );
+      }
+      const d = Math.sqrt(minD2 < 1e-12 ? 0 : minD2);
+      distances[i] = d;
+      sum += d;
+      if (d > max) max = d;
+      if (d <= tolerancePx + 1e-10) within++;
+    }
+    return { sum, max, within, count: sourcePts.length, distances };
+  };
+
+  const qA = query(ptsA, treeB);
+  const qB = query(ptsB, treeA);
+
+  const totalPoints = qA.count + qB.count;
+  const avgErrorPx = (qA.sum + qB.sum) / totalPoints;
+  const rawHd = Math.max(qA.max, qB.max);
+  const maxErrorPx = rawHd < 1e-10 ? 0 : rawHd;
+  const coverage = Math.min(1, Math.max(0, (qA.within + qB.within) / totalPoints));
+  const normalizedAvg = avgErrorPx / diagonal;
+  const normalizedMax = maxErrorPx / diagonal;
+
+  const allD = new Float64Array(totalPoints);
+  allD.set(qA.distances, 0);
+  allD.set(qB.distances, qA.count);
+  allD.sort();
+  const hd95 = allD[Math.min(totalPoints - 1, Math.floor(totalPoints * 0.95))];
+
+  const calibration = Number.isFinite(options.pixelsPerMm) && options.pixelsPerMm > 0 ? options.pixelsPerMm : null;
+
+  return {
+    ...result,
+    assdPx: avgErrorPx,
+    averageErrorPx: avgErrorPx,
+    normalizedAssd: normalizedAvg,
+    normalizedAverageError: normalizedAvg,
+    assdMm: calibration ? avgErrorPx / calibration : null,
+    averageErrorMm: calibration ? avgErrorPx / calibration : null,
+
+    hausdorffPx: maxErrorPx,
+    maxErrorPx,
+    absoluteMaxErrorPx: maxErrorPx,
+    normalizedHausdorff: normalizedMax,
+    normalizedMaxError: normalizedMax,
+    hausdorffMm: calibration ? maxErrorPx / calibration : null,
+    maxErrorMm: calibration ? maxErrorPx / calibration : null,
+
+    hausdorff95Px: hd95,
+    normalizedHausdorff95: hd95 / diagonal,
+
+    truthBoundaryPoints: qA.count,
+    predictionBoundaryPoints: qB.count,
+    totalBoundaryPoints: totalPoints,
+
+    sdfCoverage: coverage,
+    sdfError: 1 - coverage,
+    sdfPass: coverage + 1e-10 >= requiredCoverage,
+
+    truthWithinTolerance: Math.min(1, qA.within / qA.count),
+    predictionWithinTolerance: Math.min(1, qB.within / qB.count),
+    truthToPredictionPx: qA.sum / qA.count,
+    predictionToTruthPx: qB.sum / qB.count
+  };
 }
 
 /** Deterministic even-odd fill at native pixel centers, shared by editor/imports.

@@ -148,12 +148,18 @@
         <div id="uploadResults" hidden>
           <h3>Overall boundary comparison</h3>
           <dl class="gt-metrics">
+            <div><dt>Matched teeth mean error (px)</dt><dd id="uploadMatchedAvgError">—</dd></div>
+            <div><dt>Matched teeth max Hausdorff (px)</dt><dd id="uploadMatchedMaxHausdorff">—</dd></div>
             <div><dt>Normalized boundary error (0–1)</dt><dd id="uploadBoundaryError">—</dd></div>
-            <div><dt>Hausdorff distance (px)</dt><dd id="uploadHausdorff">—</dd></div>
+            <div><dt>Average error (px)</dt><dd id="uploadAverageError">—</dd></div>
+            <div><dt>Max Hausdorff distance (px)</dt><dd id="uploadHausdorff">—</dd></div>
+            <div><dt>Normalized Hausdorff (0–1)</dt><dd id="uploadNormalizedHausdorff">—</dd></div>
+            <div><dt>95% Hausdorff distance (px)</dt><dd id="uploadHausdorff95">—</dd></div>
             <div><dt>SDF within tolerance</dt><dd id="uploadSdf">—</dd></div>
             <div><dt>SDF check</dt><dd id="uploadSdfPass">—</dd></div>
           </dl>
-          <p class="hint">0 = exact boundary match. Lower is better. This number is the bidirectional Euclidean distance between vector borders, weighted by border length and divided by the selected image region’s diagonal. Use the same region when comparing runs.</p>
+          <p id="uploadBoundaryDiagnosis" class="hint" style="color:var(--warn,#f59e0b);font-weight:500;"></p>
+          <p class="hint">0 = exact boundary match. Lower is better. Point-normalized average boundary error divides Euclidean distances by the number of boundary points from teeth contours (discrete mean surface error) and by the image diagonal. Max Hausdorff distance reflects the absolute maximum boundary gap calculated with a standard KD-tree spatial index; when specific teeth are missed or false-positive teeth are predicted far from the arch (e.g. at the image edge), raw pixel Hausdorff measures that distance (~780 px on high-resolution camera images). Refer to Matched Teeth metrics for segmentation accuracy on detected teeth.</p>
           <p id="uploadBoundaryStatus" class="hint" role="status"></p>
           <h3>Individual tooth comparison</h3>
           <p id="uploadToothSummary" class="hint"></p>
