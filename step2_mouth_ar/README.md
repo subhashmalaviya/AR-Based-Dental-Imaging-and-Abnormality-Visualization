@@ -1494,3 +1494,13 @@ CLI model benchmarking accepts `boundaryOptions` in models.json, for example
 `{"tolerancePx":0.1,"requiredCoverage":0.95}`. Per-sample boundary objects and
 benchmark summaries contain the added metrics; model selection still uses the
 existing validation criteria.
+
+### Multi-model, teeth/gum and video-sequence comparisons
+
+Open **Model & target comparisons → Open model benchmark** to compare shipped
+ToothNet-lite 1.1, historical 1.0 and compatible local ONNX checkpoints on identical
+samples. Reports include per-target boundary/Hausdorff/SDF metrics, per-frame plots,
+JSON and CSV downloads. Gum scoring requires an actual gum model and reviewed gum
+labels; shipped checkpoints only support teeth. See the
+[comparison guide and public model search](../evaluation/transformer_benchmark/TARGET_COMPARISONS.md)
+for input schemas, CLI usage, tested results and candidate availability.

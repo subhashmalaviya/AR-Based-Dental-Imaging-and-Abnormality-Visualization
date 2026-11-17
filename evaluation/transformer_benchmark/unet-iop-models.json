@@ -1,0 +1,6 @@
+{
+  "models": [
+    {"id":"unet-v1.1-current","kind":"learned","model":"../../step2_mouth_ar/public/models/tooth_seg.onnx","provenance":"Shipped learned U-Net 1.1"},
+    {"id":"iop-mask-rcnn-local","kind":"iop","provenance":"Local IOP-Compass Mask R-CNN with view classifier and post-processing"}
+  ]
+}

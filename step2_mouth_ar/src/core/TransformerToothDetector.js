@@ -10,22 +10,27 @@ export function validateTransformerCard(c) {
   if(![w,h].every(v=>Number.isInteger(v)&&v>=32&&v<=1024)||!Array.isArray(mean)||!Array.isArray(std)
     ||mean.length!==3||std.length!==3||!mean.every(Number.isFinite)||!std.every(v=>Number.isFinite(v)&&v>0))
     throw new Error('Invalid Transformer input size or normalization');
-  if(!Number.isInteger(c.classes)||c.classes<2||c.classes>256||!Array.isArray(c.toothClasses)||!c.toothClasses.length||c.toothClasses.length>=c.classes
+  if(!Number.isInteger(c.classes)||c.classes<2||c.classes>256||!Array.isArray(c.toothClasses)||c.toothClasses.length>=c.classes
     ||new Set(c.toothClasses).size!==c.toothClasses.length||!c.toothClasses.every(v=>Number.isInteger(v)&&v>=0&&v<c.classes))
     throw new Error('Explicit tooth class IDs are required');
+  if(c.gumClasses!==undefined && (!Array.isArray(c.gumClasses)||!c.gumClasses.length||c.gumClasses.length>=c.classes
+    ||new Set(c.gumClasses).size!==c.gumClasses.length||!c.gumClasses.every(v=>Number.isInteger(v)&&v>=0&&v<c.classes&&!c.toothClasses.includes(v))))
+    throw new Error('Explicit, disjoint gum class IDs are required');
+  if(!c.toothClasses.length&&!c.gumClasses?.length)throw new Error('At least one dental target is required');
   if(!Number.isInteger(c.minAreaPixels)||c.minAreaPixels<1||c.minAreaPixels>w*h)throw new Error('Invalid component area threshold');
   return c;
 }
 
 // Standard SegFormer output: [1, classes, height/4, width/4] raw logits.
 // Bilinear resize logits FIRST (align_corners=false), then argmax/softmax.
-export function decodeSegformer(tensor,card,aperture) {
+export function decodeSegformer(tensor,card,aperture,target='teeth') {
   validateTransformerCard(card);
+  if(!['teeth','gums'].includes(target)||target==='gums'&&!card.gumClasses?.length)throw new Error('Unsupported segmentation target');
   const W=card.input.width,H=card.input.height,C=card.classes,[batch,channels,h,w]=tensor.dims;
   if(batch!==1||channels!==C||![w,h].every(v=>Number.isInteger(v)&&v>0)||tensor.data.length!==C*w*h)
     throw new Error('Expected NCHW SegFormer logits with the configured class count');
   if(aperture.length!==W*H)throw new Error('Aperture dimensions differ');
-  const classes=new Int32Array(W*H).fill(-1),prob=new Float32Array(W*H), tooth=new Set(card.toothClasses);
+  const classes=new Int32Array(W*H).fill(-1),prob=new Float32Array(W*H), tooth=new Set(target==='gums'?card.gumClasses:card.toothClasses);
   const logits=new Float64Array(C), at=(c,x,y)=>tensor.data[c*w*h+Math.max(0,Math.min(h-1,y))*w+Math.max(0,Math.min(w-1,x))];
   for(let y=0;y<H;y++)for(let x=0;x<W;x++) {
     const i=y*W+x;if(!aperture[i])continue;
@@ -38,7 +43,7 @@ export function decodeSegformer(tensor,card,aperture) {
     }
     if(!tooth.has(best))continue;
     let sum=0;for(let c=0;c<C;c++)sum+=Math.exp(logits[c]-logits[best]);
-    classes[i]=best;prob[i]=1/sum;
+    classes[i]=target==='gums'?0:best;prob[i]=1/sum;
   }
   const labels=new Int32Array(W*H),seen=new Uint8Array(W*H),queue=new Int32Array(W*H);let id=0;
   const classById={};
@@ -86,11 +91,15 @@ export class TransformerToothDetector extends ToothDetector {
     for(let k=0;k<3;k++)for(let i=0;i<n;i++)data[k*n+i]=(image.data[4*i+k]/255-mean[k])/std[k];
     const start=performance.now(),outputs=await this.session.run({[this.inputName]:new this.ort.Tensor('float32',data,[1,3,H,W])});
     this.lastInferenceMs=performance.now()-start;
-    return decodeSegformer(outputs[this.outputName],this.card,aperture);
+    const decoded=decodeSegformer(outputs[this.outputName],this.card,aperture);
+    decoded.targets={};
+    if(this.card.toothClasses.length)decoded.targets.teeth=decoded.labels;
+    if(this.card.gumClasses?.length)decoded.targets.gums=decodeSegformer(outputs[this.outputName],this.card,aperture,'gums').labels;
+    return decoded;
   }
   async detectAsync(image,aperture,roi) {
     if(!this.ready)throw new Error('Transformer is not loaded');
-    const {labels,prob,classById}=await this.predict(image,aperture),W=this.inputWidth,H=this.inputHeight;
+    const {labels,prob,classById,targets}=await this.predict(image,aperture),W=this.inputWidth,H=this.inputHeight;
     const contours=traceLabelContours(labels,W,H),stats=instanceStats(labels,W);
     const confidence=new Map();for(let i=0;i<labels.length;i++)if(labels[i])confidence.set(labels[i],(confidence.get(labels[i])??0)+prob[i]);
     const detections=stats.map(s=>{
@@ -102,9 +111,9 @@ export class TransformerToothDetector extends ToothDetector {
         area:s.area,confidence:confidence.get(s.id)/s.area,arch:s.y<H/2?'upper':'lower',classId:classById[s.id],
         visibility:'full',mask:{roiWidth:W,roiHeight:H,label:s.id}};
     });
-    this.lastDebug={width:W,height:H,labels,toothCount:stats.length,inferenceMs:this.lastInferenceMs,maps:{teeth:prob,center:new Float32Array(W*H),boundary:new Float32Array(W*H)}};
+    this.lastDebug={width:W,height:H,labels,targets,toothCount:stats.length,inferenceMs:this.lastInferenceMs,maps:{teeth:prob,center:new Float32Array(W*H),boundary:new Float32Array(W*H)}};
     return detections;
   }
-  dispose(){this.session?.release();this.session=null;this.ready=false;}
+  async dispose(){const session=this.session;this.session=null;this.ready=false;await session?.release();}
 }
 registerDetector('transformer',opts=>new TransformerToothDetector(opts),{label:'SegFormer candidate (local ONNX)',learned:true});

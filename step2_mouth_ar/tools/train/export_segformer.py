@@ -12,13 +12,15 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('--checkpoint',type=Path,required=True,help='Local HF directory (safetensors + processor/config)')
     p.add_argument('--out',type=Path,required=True)
-    p.add_argument('--tooth-classes',type=int,nargs='+',required=True)
+    p.add_argument('--tooth-classes',type=int,nargs='+',default=[])
+    p.add_argument('--gum-classes',type=int,nargs='+',help='Actual gum class IDs, only for a checkpoint trained to segment gums')
     p.add_argument('--name',required=True)
     p.add_argument('--source-url',required=True)
     p.add_argument('--license',required=True,help='Actual checkpoint license, not merely the architecture license')
     p.add_argument('--rgb-intraoral',action='store_true',help='Confirm this checkpoint was trained for RGB intraoral photos')
     p.add_argument('--min-area',type=int,default=8)
     a=p.parse_args()
+    if not a.tooth_classes and not a.gum_classes:p.error('Specify at least one actual tooth or gum class ID')
     if not a.rgb_intraoral:p.error('Do not export X-ray/3D/generic models as RGB dental detectors')
     if a.out.exists() or a.out.with_suffix('.json').exists():p.error('Output already exists')
     try:
@@ -33,6 +35,7 @@ def main():
     if not processor.do_resize or int(processor.resample)!=2:p.error('Expected bilinear resize preprocessing')
     if not processor.do_normalize or not processor.do_rescale or abs(processor.rescale_factor-1/255)>1e-10:p.error('Unsupported processor normalization')
     if len(set(a.tooth_classes))!=len(a.tooth_classes) or any(c<0 or c>=model.config.num_labels for c in a.tooth_classes):p.error('Invalid tooth class IDs')
+    if a.gum_classes and (len(set(a.gum_classes))!=len(a.gum_classes) or any(c<0 or c>=model.config.num_labels or c in a.tooth_classes for c in a.gum_classes)):p.error('Invalid or overlapping gum class IDs')
     if not all(isinstance(v,int) and 32<=v<=1024 for v in [w,h]) or not 1<=a.min_area<=w*h:p.error('Invalid input size or minimum area')
     class Wrapper(torch.nn.Module):
         def __init__(self):super().__init__();self.net=model
@@ -45,6 +48,7 @@ def main():
         source=a.source_url,license=a.license,sha256=hashlib.sha256(a.out.read_bytes()).hexdigest(),
         validation='Not evaluated by export. Benchmark on independent reviewed labels before deployment.',
         instanceDecoding='Four-connected components per class. Same-class touching teeth remain merged.')
+    if a.gum_classes:card['gumClasses']=a.gum_classes
     a.out.with_suffix('.json').write_text(json.dumps(card,indent=2))
     print(a.out)
 if __name__=='__main__':main()
