@@ -163,7 +163,7 @@ export class ToothMaskEditor {
   setData(labels, clean, marked) {
     this.cancelFreehand();
     Object.assign(this, { labels, clean, marked, width: clean.width, height: clean.height,
-      history: [], redoHistory: [], vectors: [], contourCache: null, points: [], drawing: false, handle: null, prediction: null, blackBackground: null, enhancedView: null });
+      history: [], redoHistory: [], vectors: [], groundTruthSource: null, contourCache: null, points: [], drawing: false, handle: null, prediction: null, blackBackground: null, enhancedView: null });
     const ids = instanceStats(labels, this.width).map(s => s.id);
     this.selected = ids[0] ?? 1; this.nextId = ids.reduce((max, id) => Math.max(max, id), 1) + 1;
     this.refresh(); this.draw();
@@ -176,7 +176,27 @@ export class ToothMaskEditor {
   }
 
   snapshot() {
-    return {labels:this.labels.slice(),vectors:structuredClone(this.vectors??[]),selected:this.selected,nextId:this.nextId};
+    return {labels:this.labels.slice(),vectors:structuredClone(this.vectors??[]),groundTruthSource:structuredClone(this.groundTruthSource ?? null),selected:this.selected,nextId:this.nextId};
+  }
+
+  usePrediction(labels, source) {
+    if (this.disabled || !this.labels || this.drawing || this.handle || this.freehand != null) return false;
+    if (labels.length !== this.width * this.height) throw new Error('Prediction dimensions must match the editor');
+    const ids = instanceStats(labels, this.width).map(s => s.id);
+    if (!ids.length) throw new Error('No detected teeth to copy. Draw missing teeth manually or run detection first.');
+    if (ids.length > 256) throw new Error('More than 256 detected regions. Refine the selected region before copying.');
+    const contours = traceLabelContours(labels, this.width, this.height), counts = new Map();
+    for (const c of contours) counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
+    this.saveUndo();
+    this.labels = labels.slice(); // Corrections must never alter the saved prediction.
+    // Exact cell-edge polygons give movable points without shifting the mask.
+    // Multipart teeth and holes stay pixel-editable: a single polygon would lose them.
+    this.vectors = contours.filter(c => counts.get(c.id) === 1 && c.points.length <= 20000);
+    this.groundTruthSource = structuredClone(source);
+    this.selected = ids[0]; this.nextId = Math.max(...ids) + 1;
+    this.el('toothEditTool').value = this.vectors.length ? 'vector-edit' : 'paint';
+    this.changed();
+    return true;
   }
 
   restoreState(state) {

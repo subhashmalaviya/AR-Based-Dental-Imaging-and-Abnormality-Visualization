@@ -1,3 +1,4 @@
+import { downloadErrorReport } from './downloadErrorReport.js';
 import { getBoundaryOptions, onBoundaryOptions } from './boundaryMetricSettings.js';
 import { formatDistance, formatCoverage, formatPass, summarizeBoundaryMetrics } from '../eval/boundaryOptions.js';
 import { traceLabelContours, vectorBoundaryDistance } from '../eval/vectorBoundary.js';
@@ -26,6 +27,7 @@ export class GroundTruthComparison {
     this.lastDraw = -Infinity;
     this.base = `${import.meta.env.BASE_URL}ground-truth/`;
     this.el = id => root.querySelector(`#${id}`);
+    this.el('gtExcelBtn').addEventListener('click', () => downloadErrorReport(this.result, this.el('gtExcelBtn')));
     this.el('gtReferenceImage').src = `${this.base}annotated.jpg`;
     this.el('gtDownloadMask').href = `${this.base}mask.png`;
     this.el('gtPhotoBtn').addEventListener('click', () => this.testPhoto());

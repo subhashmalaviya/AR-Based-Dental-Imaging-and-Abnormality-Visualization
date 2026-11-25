@@ -108,7 +108,10 @@
           <button id="uploadManual" class="btn" type="button" disabled>Draw ground truth on selected region</button>
           <button id="uploadPreview" class="btn" type="button" disabled>Extract / reset ground truth</button>
           <button id="uploadRun" class="btn btn--primary" type="button" disabled>Detect &amp; compare</button>
+          <button id="uploadFrameDownload" class="btn" type="button" hidden>Download extracted frame (PNG)</button>
+          <button id="uploadUseDetection" class="btn" type="button" hidden>Use detected teeth as editable GT</button>
         </div>
+        <p id="uploadSeedNote" class="hint" hidden></p>
         <p id="uploadStatus" class="hint" role="status" aria-live="polite">Choose both matching images.</p>
         <section id="uploadEditor" hidden aria-label="Edit individual ground-truth teeth">
           <h3>Edit &amp; compare ground-truth teeth</h3>
@@ -168,7 +171,7 @@
           <div class="tooth-result-scroll"><table class="tooth-result-table"><thead><tr><th>GT tooth</th><th>Model tooth</th><th>Boundary error (0–1)</th><th>Hausdorff (px)</th><th>SDF coverage</th><th>SDF check</th><th>Status</th></tr></thead><tbody id="uploadToothRows"></tbody></table></div>
           <figure><figcaption>Green: overlap · Red: extra prediction · Blue: missed ground truth</figcaption><canvas id="uploadErrorCanvas" aria-label="Pixel comparison"></canvas></figure>
           <p class="hint">Scores assume all teeth in the selected region are marked and both images are aligned. Unmarked pixels count as background.</p>
-          <div class="buttons"><button id="uploadJson" class="btn" type="button">Download scores (JSON)</button><button id="uploadPredPng" class="btn" type="button">Download prediction mask</button></div>
+          <div class="buttons"><button id="uploadExcel" class="btn" type="button">Download all errors (Excel)</button><button id="uploadJson" class="btn" type="button">Download scores (JSON)</button><button id="uploadPredPng" class="btn" type="button">Download prediction mask</button></div>
         </div>
       </section>
       <div id="gtBuiltinContent">
@@ -213,6 +216,7 @@
         <figure class="gt-error-figure"><figcaption id="gtErrorsTitle">Pixel differences on the matching photo</figcaption>
           <canvas id="gtErrors" width="880" height="450" aria-label="Green overlap, red extra predictions, blue missed ground truth"></canvas></figure>
         <p class="gt-legend"><span>🟩 Overlap</span><span>🟥 Extra prediction</span><span>🟦 Missed ground truth</span></p>
+        <button id="gtExcelBtn" class="btn" type="button">Download all errors (Excel)</button>
         <button id="gtExportBtn" class="btn" type="button">Download scores (JSON)</button>
       </div>
       <p class="hint">Photo scores use filled regions reconstructed from your thick hand-drawn outlines; boundaries are approximate.

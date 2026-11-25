@@ -1,3 +1,4 @@
+import { downloadErrorReport } from './downloadErrorReport.js';
 import { getBoundaryOptions, onBoundaryOptions } from './boundaryMetricSettings.js';
 import { formatDistance, formatCoverage, formatPass, summarizeBoundaryMetrics } from '../eval/boundaryOptions.js';
 import { readImageFile, drawImagePreview, checkEditCrop } from './imageInput.js';
@@ -16,6 +17,9 @@ export class UploadedPhotoComparison {
   constructor({ root, modelUrl, getDetector, setBusy }) {
     Object.assign(this, { root, modelUrl, getDetector, setBusy });
     this.el = id => root.querySelector(`#${id}`);
+    this.el('uploadExcel').addEventListener('click', () => downloadErrorReport(this.result, this.el('uploadExcel')));
+    this.el('uploadFrameDownload').addEventListener('click', () => this.downloadFrame());
+    this.el('uploadUseDetection').addEventListener('click', () => this.useDetectionAsTruth());
     this.revision = 0;
     onBoundaryOptions(() => { if (!this.busy) this.updateComparison(); });
     this.editor = new ToothMaskEditor(this.el('uploadEditor'), labels => {
@@ -26,7 +30,7 @@ export class UploadedPhotoComparison {
     this.el('uploadLabelsJson').addEventListener('click', () => {
       if (!this.truthLabels) return;
       this.download(new Blob([JSON.stringify({ schema: 'tooth-labels/1', cleanImage: this.cleanName,
-        crop: this.crop, width: this.crop[2], height: this.crop[3], labels: encodeLabels(this.truthLabels), vectorContours: this.editor.vectors, frame: this.frameContext ?? undefined })],
+        crop: this.crop, width: this.crop[2], height: this.crop[3], labels: encodeLabels(this.truthLabels), vectorContours: this.editor.vectors, groundTruthSource: this.editor.groundTruthSource, frame: this.frameContext ?? undefined })],
       { type: 'application/json' }), 'editable-tooth-labels.json');
     });
     this.el('uploadRestoreLabels').addEventListener('change', async e => {
@@ -41,6 +45,7 @@ export class UploadedPhotoComparison {
         const vectors = validateVectorContours(doc.vectorContours ?? [], this.input.width, this.input.height, labels);
         this.truthLabels = labels; this.manualEdits = (this.manualEdits ?? 0) + 1;
         this.editor.setData(labels, this.input, this.markedCrop);
+        this.editor.groundTruthSource = doc.groundTruthSource ?? null;
         if (vectors.length) this.editor.restoreVectors(vectors);
         this.updateComparison();
         this.el('uploadStatus').textContent = 'Saved tooth labels restored.';
@@ -108,8 +113,52 @@ export class UploadedPhotoComparison {
     const preview=this.el('uploadMarkedPreview');preview.width=clean.width;preview.height=clean.height;preview.getContext('2d').drawImage(clean,0,0);
     this.el('uploadEditor').hidden=false;this.el('uploadRun').disabled=false;this.el('uploadPreview').disabled=true;
     this.updateComparison();this.el('uploadStatus').textContent=detection
-      ? 'Video detection frame loaded. Orange vector borders are the exact saved model prediction. Draw and adjust your GT borders; error updates against this prediction without rerunning the model. Detect & compare explicitly runs a new prediction.'
+      ? 'Video detection frame loaded. Download the clean frame, or choose Use detected teeth as editable GT to start correcting the saved detection. Orange borders keep the original prediction; Detect & compare explicitly runs a new prediction.'
       : 'Clean video frame loaded. Draw each tooth with the freehand border, restore saved labels, or upload a matching hand-marked image above. Then Detect & compare to calculate the same boundary error as for photos.';
+  }
+
+  syncFrameActions() {
+    const hasFrame = !!this.clean && Number.isFinite(this.frameContext?.timeMs);
+    const hasPrediction = !!this.input && !!this.predictionLabels;
+    this.el('uploadFrameDownload').hidden = !hasFrame;
+    this.el('uploadFrameDownload').disabled = !!this.busy || !!this.frameDownloadBusy || !hasFrame;
+    this.el('uploadUseDetection').hidden = !hasPrediction;
+    this.el('uploadUseDetection').disabled = !!this.busy || !hasPrediction;
+    const seeded = !!this.truthLabels && this.editor.groundTruthSource?.kind === 'model-assisted';
+    this.el('uploadSeedNote').hidden = !hasPrediction && !seeded;
+    this.el('uploadSeedNote').textContent = seeded
+      ? 'Model-assisted ground truth: review and correct every tooth. An unchanged copy gives zero error against the same prediction; it is not independent accuracy. Move border points, paint/erase, or add missing teeth. Undo can restore the previous mask.'
+      : 'Use detected teeth as editable GT replaces the editable mask with a copy of the current detection. Undo restores your previous mask. The original prediction stays unchanged.';
+  }
+
+  async downloadFrame() {
+    if (this.busy || this.frameDownloadBusy || !this.clean || !Number.isFinite(this.frameContext?.timeMs)) return;
+    const clean = this.clean, name = this.cleanName;
+    this.frameDownloadBusy = true; this.syncFrameActions();
+    try {
+      // Export the extracted clean input, never the preview with borders/zoom.
+      const blob = await new Promise(resolve => clean.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Could not encode the extracted frame');
+      this.download(blob, `${name.replace(/\.[^.]+$/, '')}.png`);
+      this.el('uploadStatus').textContent = `Downloaded ${name} at ${clean.width} × ${clean.height} pixels, without overlays.`;
+    } catch (error) { this.el('uploadStatus').textContent = `Frame download failed: ${error.message}`; }
+    finally { this.frameDownloadBusy = false; this.syncFrameActions(); }
+  }
+
+  useDetectionAsTruth() {
+    if (this.busy || !this.input || !this.predictionLabels) return;
+    try {
+      const copied = this.editor.usePrediction(this.predictionLabels, {
+        kind: 'model-assisted', detector: this.runInfo?.detector ?? 'unknown',
+        predictionTimestamp: this.runInfo?.timestamp ?? null, frame: this.frameContext ?? null,
+        note: 'Initialized from model prediction; requires manual review. Not independent ground truth.'
+      });
+      if (!copied) return;
+      this.el('toothEditBackground').value = 'clean';
+      this.editor.draw(); this.drawComparison();
+      this.el('uploadEditor').hidden = false;
+      this.el('uploadStatus').textContent = 'Detected teeth copied into editable ground truth. Select a tooth and move its border points, paint/erase pixels, or add missing teeth. Multipart teeth retain their exact pixel masks. Undo and Redo include this copy operation.';
+    } catch (error) { this.el('uploadStatus').textContent = error.message; }
   }
 
   invalidate() {
@@ -119,6 +168,7 @@ export class UploadedPhotoComparison {
     this.el('uploadResults').hidden = true;
     this.el('uploadMasks').hidden = true;
     this.extractionOptions = null;
+    this.syncFrameActions();
     this.el('uploadExtractionNote').textContent = '';
     this.el('uploadManual').disabled = !this.clean;
     this.el('uploadTruthJson').disabled = !this.clean;
@@ -155,6 +205,7 @@ export class UploadedPhotoComparison {
       this.el('toothEditBackground').value = 'clean';
       this.el('toothEditTool').value = imported.vectors.length ? 'vector-edit' : 'paint';
       this.editor.setData(this.truthLabels, this.input, this.input);
+      this.editor.groundTruthSource = doc.groundTruthSource ?? null;
       if (imported.vectors.length) this.editor.restoreVectors(imported.vectors);
       this.drawSelection(); drawImagePreview(this.el('uploadMarkedPreview'), clean);
       this.el('uploadInputPreview').hidden = false; this.el('uploadEditor').hidden = false;
@@ -208,7 +259,7 @@ export class UploadedPhotoComparison {
       this.editor.setData(this.truthLabels, this.input, this.input);
       this.el('uploadEditor').hidden = false; this.el('uploadRun').disabled = false;
       this.updateComparison();
-      this.el('uploadStatus').textContent = 'Draw each tooth border on this native-resolution crop, then Detect & compare. Model predictions are never used as ground truth.';
+      this.el('uploadStatus').textContent = 'Draw each tooth border on this native-resolution crop, then Detect & compare. Copying detected teeth into ground truth requires choosing Use detected teeth as editable GT.';
     } catch (e) { this.el('uploadStatus').textContent = e.message; }
   }
 
@@ -318,10 +369,12 @@ export class UploadedPhotoComparison {
       this.el('uploadPreview').disabled = !this.marked;
       this.el('uploadRun').disabled = !this.marked && !this.truthLabels;
       if (this.truthLabels) this.editor.refresh();
+      this.syncFrameActions();
     }
   }
 
   updateComparison() {
+    this.syncFrameActions();
     if (!this.truthLabels || !this.input) return;
     // The editor label array is the source of truth: no extraction, resizing or
     // registration is applied between editing, scoring and rendering results.
@@ -381,6 +434,7 @@ export class UploadedPhotoComparison {
       predictionBoundaryPoints: boundary.predictionBoundaryPoints,
       totalBoundaryPoints: boundary.totalBoundaryPoints,
       ...this.runInfo, extraction: this.extractionOptions, manualEditOperations: this.manualEdits,
+      groundTruthSource: this.editor.groundTruthSource ?? null, frame: this.frameContext ?? null,
       scope: 'Selected crop only. T/P IDs are annotation/detection IDs, not anatomical tooth numbers. Per-tooth scores use one-to-one instance matching; overall boundary scores retain all tooth borders; area scores use binary unions.' };
     this.el('uploadToothSummary').textContent = `${perTooth.groundTruthCount} GT teeth · ${perTooth.predictionCount} model teeth · ${perTooth.rows.filter(row => row.prediction != null).length} compared pairs · ${perTooth.extraPredictions.length} unmatched predictions`;
     const body = this.el('uploadToothRows'); body.replaceChildren();

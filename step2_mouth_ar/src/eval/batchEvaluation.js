@@ -1,5 +1,6 @@
-import { decodeLabels } from './toothInstances.js';
-import { traceLabelContours, validateVectorContours, vectorBoundaryDistance } from './vectorBoundary.js';
+import { decodeLabels, compareInstances, binaryFromLabels } from './toothInstances.js';
+import { scoreReferenceOverlap } from './liveReference.js';
+import { traceLabelContours, validateVectorContours, vectorBoundaryDistance, rasterizeVector } from './vectorBoundary.js';
 
 export const IMAGE_EXTENSION = /\.(png|jpe?g|webp|bmp|gif|dng|heic|heif|avif|tiff?)$/i;
 
@@ -31,7 +32,7 @@ export function parsePatientTruth(doc, width, height, imageName) {
     const labels = decodeLabels(doc.labels, c[2] * c[3]);
     const vectors = validateVectorContours(doc.vectorContours ?? [], c[2], c[3], labels);
     const vectorIds = new Set(vectors.map(v => v.id));
-    return { crop: c, contours: [...traceLabelContours(labels, c[2], c[3]).filter(v => !vectorIds.has(v.id)), ...vectors], patientId: '' };
+    return { crop: c, labels, contours: [...traceLabelContours(labels, c[2], c[3]).filter(v => !vectorIds.has(v.id)), ...vectors], patientId: '' };
   }
   if (!Array.isArray(doc?.teeth) || doc.teeth.length > 256) throw new Error('Expected patient JSON with a teeth array, or tooth-labels/1');
   if (doc.annotation_count != null && doc.annotation_count !== doc.teeth.length) throw new Error('annotation_count differs from teeth array length');
@@ -55,10 +56,27 @@ export function parsePatientTruth(doc, width, height, imageName) {
   return { crop: [0, 0, width, height], contours, patientId: String(doc.patient_id ?? ''), caseName: String(doc.case_name ?? '') };
 }
 
-export function scoreBatchPrediction(truth, prediction, width, height, options = {}) {
+export function scoreBatchPrediction(truth, prediction, width, height, options = {}, savedLabels = null) {
   const contours = traceLabelContours(prediction, width, height);
   const distance = vectorBoundaryDistance(truth, contours, width, height, options);
-  return { boundary: distance, error: distance.normalizedAssd, status: distance.status, gtTeeth: new Set(truth.map(c => c.id)).size,
+  // Keep saved pixel labels (including holes). Patient multi-ring contours share
+  // a tooth ID, but need temporary ring IDs so filling one never clears another.
+  const labels = savedLabels ?? new Int32Array(width * height);
+  if (!savedLabels) {
+    truth.forEach((curve, i) => rasterizeVector(labels, width, height, { ...curve, id: i + 1 }));
+    for (let i = 0; i < labels.length; i++) if (labels[i]) labels[i] = truth[labels[i] - 1].id;
+  }
+  const perTooth = compareInstances(labels, prediction, width);
+  // Preserve even a subpixel or fully occluded annotation in the report.
+  for (const id of new Set(truth.map(c => c.id))) if (!perTooth.rows.some(r => r.groundTruth === id))
+    perTooth.rows.push({ groundTruth: id, prediction: null, status: 'No raster pixels for matching', mergedWith: [], splitAcross: [] });
+  for (const row of perTooth.rows) {
+    row.boundary = vectorBoundaryDistance(truth.filter(c => c.id === row.groundTruth), contours.filter(c => c.id === row.prediction), width, height, options);
+    row.normalizedBoundaryError = row.boundary.normalizedAssd;
+  }
+  perTooth.groundTruthCount = new Set(truth.map(c => c.id)).size;
+  const scores = scoreReferenceOverlap(binaryFromLabels(labels), binaryFromLabels(prediction));
+  return { boundary: distance, scores, perTooth, error: distance.normalizedAssd, status: distance.status, gtTeeth: new Set(truth.map(c => c.id)).size,
     predictedTeeth: new Set(contours.map(c => c.id)).size };
 }
 

@@ -70,7 +70,7 @@ export class VideoEvaluation {
   resetProcessedFrame() {
     this.processedFrame=null;this.el('videoProcessingPreview').hidden=true;
     this.el('videoProcessedTime').textContent='';
-    this.el('videoSnapshotStatus').textContent='Extract the displayed detection frame directly into ground truth comparison, then draw vector GT borders against its saved prediction.';
+    this.el('videoSnapshotStatus').textContent='Extract the displayed detection frame directly into ground truth comparison, then copy detected teeth into editable GT or draw your own borders.';
     this.syncSnapshotButton();
   }
   async extractDetection(download=false) {
@@ -87,7 +87,7 @@ export class VideoEvaluation {
         const context={captureProtocol:'browser-seek/1',videoSha256:metadata.hash,timeMs:metadata.timeMs,sourceCrop:metadata.crop.slice()};
         this.onAnnotate(clean,`video_${metadata.hash.slice(0,12)}_${metadata.timeMs}ms.png`,context,
           {labels:metadata.labels.slice(),runInfo:structuredClone(metadata.runInfo)});
-        this.el('videoSnapshotStatus').textContent=`Opened detection frame at ${(metadata.timeMs/1000).toFixed(3)} s in Your ground truth comparison. Orange vector borders show this exact video prediction; draw your GT borders to compare.`;
+        this.el('videoSnapshotStatus').textContent=`Opened detection frame at ${(metadata.timeMs/1000).toFixed(3)} s in Your ground truth comparison. Orange vector borders show this exact video prediction. Use detected teeth as editable GT to correct them, or draw your own borders.`;
         return;
       }
       // PNG export is optional. Copy pixels before asynchronous encoding.

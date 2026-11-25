@@ -159,3 +159,65 @@ test('video prediction is shown immediately and GT edits score against the froze
   app.editor.labels[7]=1;app.editor.changed();assert.equal(app.result.normalizedBoundaryError,0);
   assert.equal(app.input,clean);assert.equal(rgba(app.input)[0],20,'model overlays are not burned into the clean image');
 });
+
+test('explicit detection copy is editable, undoable and preserves prediction and provenance', t => {
+  const previous=globalThis.document;t.after(()=>{globalThis.document=previous;});
+  globalThis.document={createElement:tag=>tag==='canvas'?canvas():element()};
+  const elements=new Map(),get=selector=>{
+    if(!elements.has(selector)){const el=selector.endsWith('Canvas')||selector==='#uploadMarkedPreview'?canvas():element();el.querySelector=get;elements.set(selector,el);}
+    return elements.get(selector);
+  };
+  const app=new UploadedPhotoComparison({root:{querySelector:get},setBusy(){},getDetector(){throw new Error('Must not rerun inference');}});
+  app.drawSelection=()=>{};
+  const clean=canvas(8,6,20),labels=new Int32Array(48);
+  labels[9]=labels[10]=1;labels[12]=2; labels[36]=labels[38]=3; // Multipart tooth remains intact.
+  app.loadAnnotationFrame(clean,'video_frame.png',{timeMs:2500,sourceCrop:[10,20,8,6]},
+    {labels,runInfo:{detector:'learned',source:'video prediction snapshot'}});
+  assert.equal(get('#uploadFrameDownload').hidden,false);
+  assert.equal(get('#uploadUseDetection').hidden,false);
+  const frozen=app.predictionLabels.slice();
+  app.useDetectionAsTruth();
+  assert.deepEqual(app.truthLabels,frozen);
+  assert.notStrictEqual(app.truthLabels,app.predictionLabels);
+  assert.equal(app.result.normalizedBoundaryError,0);
+  assert.equal(app.result.groundTruthSource.kind,'model-assisted');
+  assert.equal(app.result.perTooth.groundTruthCount,3);
+  assert.deepEqual(app.editor.vectors.map(c=>c.id),[1,2]);
+  assert.equal(get('#toothEditTool').value,'vector-edit');
+  assert.match(get('#uploadSeedNote').textContent,/not independent accuracy/);
+  app.editor.undo();
+  assert.ok(app.truthLabels.every(v=>v===0));assert.equal(app.result.groundTruthSource,null);
+  app.editor.redo();
+  assert.deepEqual(app.truthLabels,frozen);assert.equal(app.result.groundTruthSource.kind,'model-assisted');
+  app.editor.saveUndo();
+  app.editor.applyVector({id:1,smooth:false,points:[[1,1],[4,1],[4,2],[1,2]]});app.editor.changed();
+  assert.equal(app.truthLabels[11],1);
+  assert.ok(app.result.normalizedBoundaryError>0);
+  assert.deepEqual(app.predictionLabels,frozen,'editing GT must not modify model prediction');
+  app.editor.undo();assert.deepEqual(app.truthLabels,frozen);
+  app.predictionLabels=new Int32Array(48);
+  app.useDetectionAsTruth();
+  assert.deepEqual(app.truthLabels,frozen,'empty detections must not erase corrected GT');
+  assert.match(get('#uploadStatus').textContent,/No detected teeth/);
+});
+
+test('frame download exports clean native pixels with overlays excluded and survives async source changes', async t=>{
+  const previous=globalThis.document;t.after(()=>{globalThis.document=previous;});
+  globalThis.document={createElement:tag=>tag==='canvas'?canvas():element()};
+  const elements=new Map(),get=selector=>{
+    if(!elements.has(selector)){const el=selector.endsWith('Canvas')||selector==='#uploadMarkedPreview'?canvas():element();el.querySelector=get;elements.set(selector,el);}
+    return elements.get(selector);
+  };
+  const app=new UploadedPhotoComparison({root:{querySelector:get},setBusy(){}});app.drawSelection=()=>{};
+  const clean=canvas(5,3,20);let encode;
+  clean.toBlob=(callback,type)=>{assert.equal(type,'image/png');assert.equal(rgba(clean)[0],20);encode=callback;};
+  app.loadAnnotationFrame(clean,'video_2500ms.png',{timeMs:2500});
+  app.crop=[1,1,2,1]; // Download still represents the whole extracted input.
+  const downloaded=[];app.download=(blob,name)=>downloaded.push({blob,name});
+  const pending=app.downloadFrame();assert.equal(get('#uploadFrameDownload').disabled,true);
+  app.clean=canvas(2,2,90);app.cleanName='new.png';
+  const blob=new Blob(['png']);encode(blob);await pending;
+  assert.deepEqual(downloaded,[{blob,name:'video_2500ms.png'}]);
+  app.frameContext=null;app.syncFrameActions();assert.equal(get('#uploadFrameDownload').hidden,true);
+  await app.downloadFrame();assert.equal(downloaded.length,1);
+});

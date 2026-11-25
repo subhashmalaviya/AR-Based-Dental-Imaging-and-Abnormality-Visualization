@@ -89,8 +89,7 @@ testoutputs/
 # Local uploaded training/annotation media
 /testvideophoto/
 # Local patient evaluation reports (contain patient identifiers and results).
-/outputs/patient-batch-*/
-/outputs/model-target-benchmark/
+/outputs/
 step2_mouth_ar/scratch/
 ChatGPT Image*.png
 Screencast*.webm

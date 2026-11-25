@@ -1,4 +1,5 @@
 import { summarizeBoundaryMetrics, boundaryOptions } from './boundaryOptions.js';
+import { addErrorDetails } from './errorWorkbook.js';
 import { summarizeBatch } from './batchEvaluation.js';
 
 // Lazy-loaded by the download button, keeping Excel code out of camera startup.
@@ -31,7 +32,7 @@ export async function createBatchWorkbook(rows, run) {
     ['Mean average boundary error (px)', metrics.meanAverageErrorPx ?? 'Unavailable'],
     ['Mean normalized average error (0–1)', metrics.meanNormalizedAverageError ?? 'Unavailable'],
     ['Hausdorff definition', 'Maximum bidirectional Euclidean boundary mismatch (absolute max error metric) in pixels and normalized by evaluated region diagonal. Computed using standard KD-tree spatial index across teeth boundary points. Note: On high-resolution images (e.g. 2896x1944), a completely missed tooth (such as T1) produces a raw pixel Hausdorff distance corresponding to the anatomical gap to the nearest detection (e.g. ~780 px), which corresponds to ~0.22 unit-normalized error. Check normalized Hausdorff to compare across resolutions.'],
-    ['SDF definition', 'Proportion of boundary length in BOTH directions whose absolute signed distance to the other border is <= tolerance. Higher coverage is better; SDF error = 1 - coverage. PASS requires the configured coverage. Inside/outside sign is irrelevant to this absolute-distance test.'],
+    ['SDF definition', 'Proportion of sampled boundary points in BOTH directions whose absolute signed distance to the other border is <= tolerance. Higher coverage is better; SDF error = 1 - coverage. PASS requires the configured coverage. Inside/outside sign is irrelevant to this absolute-distance test.'],
     ['Aggregation and missing data', 'Means weight each evaluated image equally, not each pixel. Missing predictions contribute 0 coverage and FAIL, but have no finite Hausdorff distance. Missing GT, failed and cancelled entries are unavailable, not PASS. Check coverage counts alongside averages.'],
     ['Units and Normalization', 'Raw pixel errors reflect native camera sensor resolution (e.g. 2896x1944). Normalized errors divide by the image region diagonal sqrt(w^2 + h^2) to provide scale-invariant [0, 1] metrics comparable across different resolutions. Physical millimeters are reported when iris or coin calibration is available.'],
   ]);
@@ -101,5 +102,6 @@ export async function createBatchWorkbook(rows, run) {
   }
   for (let i = 0; i < rows.length; i++) if (rows[i].status !== 'ok')
     images.getCell(i + 2, 13).font = { color: { argb: 'FF9C4020' }, bold: true };
+  addErrorDetails(book, rows, run);
   return book;
 }

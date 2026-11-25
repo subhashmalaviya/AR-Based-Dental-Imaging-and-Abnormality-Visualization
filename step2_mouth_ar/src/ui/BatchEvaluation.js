@@ -16,7 +16,7 @@ export class BatchEvaluation {
       <div class="buttons buttons--wrap"><button class="btn" data-b="scan">Scan folder path</button>
       <label class="btn">Choose main folder<input data-b="folder" type="file" webkitdirectory multiple style="display:block;max-width:100%"></label></div>
       <p class="hint">Path entry works on this computer with the local server. Choose main folder also works on hosted pages. Files and model inference stay on this computer. Patient JSON with teeth contours and saved tooth-labels/1 JSON are supported.</p>
-      <div class="buttons buttons--wrap"><button class="btn btn--primary" data-b="run" disabled>Run batch comparison</button><button class="btn" data-b="cancel" disabled>Stop after current image</button><button class="btn" data-b="download" disabled>Download Excel report</button></div>
+      <div class="buttons buttons--wrap"><button class="btn btn--primary" data-b="run" disabled>Run batch comparison</button><button class="btn" data-b="cancel" disabled>Stop after current image</button><button class="btn" data-b="download" disabled>Download all errors (Excel)</button></div>
       <p data-b="status" role="status"></p><progress data-b="progress" value="0" max="1" style="width:100%"></progress>
       <p data-b="summary"></p>
       <p class="hint">Error is the same normalized bidirectional boundary distance as the photo comparison: 0 = exact match; lower is better. Overall error is the mean of scored images. Missing boundaries and failed entries are reported separately. Uses the selected Detector, the full image (or an explicitly saved crop), and never a crop derived from GT.</p>
@@ -107,7 +107,7 @@ export class BatchEvaluation {
               input.getContext('2d').drawImage(clean, x, y, w, h, 0, 0, w, h);
             }
             const prediction = await inferCanvas(detector, input);
-            Object.assign(row, scoreBatchPrediction(truth.contours, prediction.labels, w, h, this.runInfo.boundaryOptions), { elapsedMs: prediction.elapsedMs });
+            Object.assign(row, scoreBatchPrediction(truth.contours, prediction.labels, w, h, this.runInfo.boundaryOptions, truth.labels), { elapsedMs: prediction.elapsedMs });
           } catch (e) { row.status = 'failed'; row.details = e.message; }
           finally { if (input && input !== clean) input.width = input.height = 1; if (clean) clean.width = clean.height = 1; }
         }
@@ -141,11 +141,11 @@ export class BatchEvaluation {
     try {
       const { createBatchWorkbook } = await import('../eval/batchWorkbook.js');
       const run = this.runInfo ?? { timestamp: new Date().toISOString(), source: this.source, detector: 'Not run', model: 'Not run' };
-      const workbook = await createBatchWorkbook(this.rows, run), bytes = await workbook.xlsx.writeBuffer();
+      const workbook = await createBatchWorkbook(structuredClone(this.rows), structuredClone(run)), bytes = await workbook.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const link = document.createElement('a'); link.href = url; link.download = `dental-batch-${run.timestamp.slice(0, 10)}.xlsx`;
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-      this.status('Excel report downloaded. Summary contains the overall mean; Images contains every entry and its status.');
+      this.status('Excel report downloaded. Includes overall summaries, every image, individual teeth, unmatched predictions, and all calculated values.');
     } catch (e) { this.status(`Excel export failed: ${e.message}`); }
     finally { this.el('download').disabled = false; }
   }
